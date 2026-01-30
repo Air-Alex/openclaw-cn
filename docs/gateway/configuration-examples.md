@@ -1,9 +1,9 @@
 ---
-summary: "常见 Clawdbot 设置的符合 Schema 规范的配置示例"
+summary: "常见 openclaw-cn 设置的符合 Schema 规范的配置示例"
 read_when:
-  - 学习如何配置 Clawdbot
+  - 学习如何配置 openclaw-cn
   - 查找配置示例
-  - 首次设置 Clawdbot
+  - 首次设置 openclaw-cn
 ---
 # 配置示例
 
@@ -85,7 +85,7 @@ read_when:
   // 日志记录
   logging: {
     level: "info",
-    file: "/tmp/clawdbot/clawdbot.log",
+    file: "/tmp/openclaw-cn/openclaw-cn.log",
     consoleLevel: "info",
     consoleStyle: "pretty",
     redactSensitive: "tools"
@@ -93,7 +93,7 @@ read_when:
 
   // 消息格式化
   messages: {
-    messagePrefix: "[clawdbot]",
+    messagePrefix: "[openclaw-cn]",
     responsePrefix: ">",
     ackReaction: "👀",
     ackReactionScope: "group-mentions"
@@ -102,7 +102,7 @@ read_when:
   // 路由 + 队列
   routing: {
     groupChat: {
-      mentionPatterns: ["@clawd", "clawdbot"],
+      mentionPatterns: ["@clawd", "openclaw-cn"],
       historyLimit: 50
     },
     queue: {
@@ -369,7 +369,7 @@ read_when:
       }
     ],
     gmail: {
-      account: "clawdbot@gmail.com",
+      account: "openclaw-cn@gmail.com",
       label: "INBOX",
       topic: "projects/<project-id>/topics/gog-gmail-watch",
       subscription: "gog-gmail-watch-push",
@@ -388,7 +388,7 @@ read_when:
     mode: "local",
     port: 18789,
     bind: "loopback",
-    controlUi: { enabled: true, basePath: "/clawdbot" },
+    controlUi: { enabled: true, basePath: "/openclaw-cn" },
     auth: {
       mode: "token",
       token: "gateway-token",

@@ -1,193 +1,193 @@
 ---
-summary: "Runbook for the Gateway service, lifecycle, and operations"
+summary: "网关服务的操作手册、生命周期和运维指南"
 read_when:
-  - Running or debugging the gateway process
+  - 运行或调试网关进程时
 ---
-# Gateway service runbook
+# 网关服务操作手册
 
-Last updated: 2025-12-09
+最后更新：2025-12-09
 
-## What it is
-- The always-on process that owns the single Baileys/Telegram connection and the control/event plane.
-- Replaces the legacy `gateway` command. CLI entry point: `clawdbot gateway`.
-- Runs until stopped; exits non-zero on fatal errors so the supervisor restarts it.
+## 服务简介
+- 持续运行的进程，负责管理单一的 Baileys/Telegram 连接以及控制/事件平面。
+- 取代旧版 `gateway` 命令。CLI 入口点：`clawdbot gateway`。
+- 持续运行直到被停止；在发生致命错误时以非零退出码退出，以便监管程序重启它。
 
-## How to run (local)
+## 如何运行（本地）
 ```bash
 clawdbot gateway --port 18789
-# for full debug/trace logs in stdio:
+# 在标准输入输出中显示完整的调试/跟踪日志：
 clawdbot gateway --port 18789 --verbose
-# if the port is busy, terminate listeners then start:
+# 如果端口被占用，终止监听者然后启动：
 clawdbot gateway --force
-# dev loop (auto-reload on TS changes):
+# 开发循环（在 TS 更改时自动重新加载）：
 pnpm gateway:watch
 ```
-- Config hot reload watches `~/.openclaw/openclaw.json` (or `OPENCLAW_CONFIG_PATH`).
-  - Default mode: `gateway.reload.mode="hybrid"` (hot-apply safe changes, restart on critical).
-  - Hot reload uses in-process restart via **SIGUSR1** when needed.
-  - Disable with `gateway.reload.mode="off"`.
-- Binds WebSocket control plane to `127.0.0.1:<port>` (default 18789).
-- The same port also serves HTTP (control UI, hooks, A2UI). Single-port multiplex.
-  - OpenAI Chat Completions (HTTP): [`/v1/chat/completions`](/gateway/openai-http-api).
-  - OpenResponses (HTTP): [`/v1/responses`](/gateway/openresponses-http-api).
-  - Tools Invoke (HTTP): [`/tools/invoke`](/gateway/tools-invoke-http-api).
-- Starts a Canvas file server by default on `canvasHost.port` (default `18793`), serving `http://<gateway-host>:18793/__clawdbot__/canvas/` from `~/clawwork/canvas`. Disable with `canvasHost.enabled=false` or `OPENCLAW_SKIP_CANVAS_HOST=1`.
-- Logs to stdout; use launchd/systemd to keep it alive and rotate logs.
-- Pass `--verbose` to mirror debug logging (handshakes, req/res, events) from the log file into stdio when troubleshooting.
-- `--force` uses `lsof` to find listeners on the chosen port, sends SIGTERM, logs what it killed, then starts the gateway (fails fast if `lsof` is missing).
-- If you run under a supervisor (launchd/systemd/mac app child-process mode), a stop/restart typically sends **SIGTERM**; older builds may surface this as `pnpm` `ELIFECYCLE` exit code **143** (SIGTERM), which is a normal shutdown, not a crash.
-- **SIGUSR1** triggers an in-process restart when authorized (gateway tool/config apply/update, or enable `commands.restart` for manual restarts).
-- Gateway auth is required by default: set `gateway.auth.token` (or `OPENCLAW_GATEWAY_TOKEN`) or `gateway.auth.password`. Clients must send `connect.params.auth.token/password` unless using Tailscale Serve identity.
-- The wizard now generates a token by default, even on loopback.
-- Port precedence: `--port` > `OPENCLAW_GATEWAY_PORT` > `gateway.port` > default `18789`.
+- 配置热重载监控 `~/.openclaw/openclaw.json`（或 `OPENCLAW_CONFIG_PATH`）。
+  - 默认模式：`gateway.reload.mode="hybrid"`（热应用安全更改，在关键情况下重启）。
+  - 热重载在需要时通过 **SIGUSR1** 使用进程内重启。
+  - 使用 `gateway.reload.mode="off"` 禁用。
+- 将 WebSocket 控制平面绑定到 `127.0.0.1:<port>`（默认 18789）。
+- 同一端口也提供 HTTP 服务（控制 UI、钩子、A2UI）。单端口复用。
+  - OpenAI 聊天补全（HTTP）：[`/v1/chat/completions`](/gateway/openai-http-api)。
+  - OpenResponses（HTTP）：[`/v1/responses`](/gateway/openresponses-http-api)。
+  - 工具调用（HTTP）：[`/tools/invoke`](/gateway/tools-invoke-http-api)。
+- 默认在 `canvasHost.port` 上启动一个 Canvas 文件服务器（默认 `18793`），从 `~/clawwork/canvas` 提供 `http://<gateway-host>:18793/__clawdbot__/canvas/` 服务。使用 `canvasHost.enabled=false` 或 `OPENCLAW_SKIP_CANVAS_HOST=1` 禁用。
+- 记录到标准输出；使用 launchd/systemd 使其保持运行并轮转日志。
+- 故障排除时传递 `--verbose` 以将调试日志（握手、请求/响应、事件）从日志文件镜像到标准输入输出。
+- `--force` 使用 `lsof` 查找所选端口上的监听者，发送 SIGTERM，记录杀死的内容，然后启动网关（如果缺少 `lsof` 则快速失败）。
+- 如果您在监管程序下运行（launchd/systemd/mac 应用子进程模式），停止/重启通常会发送 **SIGTERM**；较旧版本可能会将其显示为 `pnpm` `ELIFECYCLE` 退出码 **143**（SIGTERM），这是正常关闭，不是崩溃。
+- **SIGUSR1** 在授权时触发进程内重启（网关工具/配置应用/更新，或启用 `commands.restart` 进行手动重启）。
+- 默认需要网关认证：设置 `gateway.auth.token`（或 `OPENCLAW_GATEWAY_TOKEN`）或 `gateway.auth.password`。客户端必须发送 `connect.params.auth.token/password`，除非使用 Tailscale Serve 身份。
+- 向导现在默认生成令牌，即使在回环接口上也是如此。
+- 端口优先级：`--port` > `OPENCLAW_GATEWAY_PORT` > `gateway.port` > 默认 `18789`。
 
-## Remote access
-- Tailscale/VPN preferred; otherwise SSH tunnel:
+## 远程访问
+- 优先使用 Tailscale/VPN；否则使用 SSH 隧道：
   ```bash
   ssh -N -L 18789:127.0.0.1:18789 user@host
   ```
-- Clients then connect to `ws://127.0.0.1:18789` through the tunnel.
-- If a token is configured, clients must include it in `connect.params.auth.token` even over the tunnel.
+- 客户端随后通过隧道连接到 `ws://127.0.0.1:18789`。
+- 如果配置了令牌，即使通过隧道，客户端也必须在 `connect.params.auth.token` 中包含它。
 
-## Multiple gateways (same host)
+## 多网关（同一主机）
 
-Usually unnecessary: one Gateway can serve multiple messaging channels and agents. Use multiple Gateways only for redundancy or strict isolation (ex: rescue bot).
+通常不需要：一个网关可以服务多个消息通道和代理。仅在需要冗余或严格隔离时使用多个网关（例如：救援机器人）。
 
-Supported if you isolate state + config and use unique ports. Full guide: [Multiple gateways](/gateway/multiple-gateways).
+如果您隔离状态+配置并使用唯一端口，则支持。完整指南：[多网关](/gateway/multiple-gateways)。
 
-Service names are profile-aware:
+服务名称具有配置文件感知能力：
 - macOS: `com.openclaw.<profile>`
 - Linux: `clawdbot-gateway-<profile>.service`
 - Windows: `Clawdbot Gateway (<profile>)`
 
-Install metadata is embedded in the service config:
+安装元数据嵌入在服务配置中：
 - `OPENCLAW_SERVICE_MARKER=clawdbot`
 - `OPENCLAW_SERVICE_KIND=gateway`
 - `OPENCLAW_SERVICE_VERSION=<version>`
 
-Rescue-Bot Pattern: keep a second Gateway isolated with its own profile, state dir, workspace, and base port spacing. Full guide: [Rescue-bot guide](/gateway/multiple-gateways#rescue-bot-guide).
+救援机器人模式：保持第二个网关隔离，拥有自己的配置文件、状态目录、工作区和基础端口间隔。完整指南：[救援机器人指南](/gateway/multiple-gateways#rescue-bot-guide)。
 
-### Dev profile (`--dev`)
+### 开发配置文件（`--dev`）
 
-Fast path: run a fully-isolated dev instance (config/state/workspace) without touching your primary setup.
+快速路径：运行完全隔离的开发实例（配置/状态/工作空间），而不影响您的主要设置。
 
 ```bash
 clawdbot --dev setup
 clawdbot --dev gateway --allow-unconfigured
-# then target the dev instance:
+# 然后针对开发实例：
 clawdbot --dev status
 clawdbot --dev health
 ```
 
-Defaults (can be overridden via env/flags/config):
+默认值（可以通过环境变量/标志/配置覆盖）：
 - `OPENCLAW_STATE_DIR=~/.openclaw-dev`
 - `OPENCLAW_CONFIG_PATH=~/.openclaw-dev/openclaw.json`
-- `OPENCLAW_GATEWAY_PORT=19001` (Gateway WS + HTTP)
-- `browser.controlUrl=http://127.0.0.1:19003` (derived: `gateway.port+2`)
-- `canvasHost.port=19005` (derived: `gateway.port+4`)
-- `agents.defaults.workspace` default becomes `~/clawd-dev` when you run `setup`/`onboard` under `--dev`.
+- `OPENCLAW_GATEWAY_PORT=19001` （网关 WS + HTTP）
+- `browser.controlUrl=http://127.0.0.1:19003` （派生：`gateway.port+2`）
+- `canvasHost.port=19005` （派生：`gateway.port+4`）
+- 当您在 `--dev` 下运行 `setup`/`onboard` 时，`agents.defaults.workspace` 默认变为 `~/clawd-dev`。
 
-Derived ports (rules of thumb):
-- Base port = `gateway.port` (or `OPENCLAW_GATEWAY_PORT` / `--port`)
-- `browser.controlUrl port = base + 2` (or `OPENCLAW_BROWSER_CONTROL_URL` / config override)
-- `canvasHost.port = base + 4` (or `OPENCLAW_CANVAS_HOST_PORT` / config override)
-- Browser profile CDP ports auto-allocate from `browser.controlPort + 9 .. + 108` (persisted per profile).
+派生端口（经验法则）：
+- 基础端口 = `gateway.port` （或 `OPENCLAW_GATEWAY_PORT` / `--port`）
+- `browser.controlUrl 端口 = 基础 + 2` （或 `OPENCLAW_BROWSER_CONTROL_URL` / 配置覆盖）
+- `canvasHost.port = 基础 + 4` （或 `OPENCLAW_CANVAS_HOST_PORT` / 配置覆盖）
+- 浏览器配置文件 CDP 端口从 `browser.controlPort + 9 .. + 108` 自动分配（每个配置文件持久化）。
 
-Checklist per instance:
-- unique `gateway.port`
-- unique `OPENCLAW_CONFIG_PATH`
-- unique `OPENCLAW_STATE_DIR`
-- unique `agents.defaults.workspace`
-- separate WhatsApp numbers (if using WA)
+每个实例的检查清单：
+- 独特的 `gateway.port`
+- 独特的 `OPENCLAW_CONFIG_PATH`
+- 独特的 `OPENCLAW_STATE_DIR`
+- 独特的 `agents.defaults.workspace`
+- 单独的 WhatsApp 号码（如果使用 WA）
 
-Service install per profile:
+每个配置文件的服务安装：
 ```bash
 clawdbot --profile main gateway install
 clawdbot --profile rescue gateway install
 ```
 
-Example:
+示例：
 ```bash
 OPENCLAW_CONFIG_PATH=~/.openclaw/a.json OPENCLAW_STATE_DIR=~/.openclaw-a clawdbot gateway --port 19001
 OPENCLAW_CONFIG_PATH=~/.openclaw/b.json OPENCLAW_STATE_DIR=~/.openclaw-b clawdbot gateway --port 19002
 ```
 
-## Protocol (operator view)
-- Full docs: [Gateway protocol](/gateway/protocol) and [Bridge protocol (legacy)](/gateway/bridge-protocol).
-- Mandatory first frame from client: `req {type:"req", id, method:"connect", params:{minProtocol,maxProtocol,client:{id,displayName?,version,platform,deviceFamily?,modelIdentifier?,mode,instanceId?}, caps, auth?, locale?, userAgent? } }`.
-- Gateway replies `res {type:"res", id, ok:true, payload:hello-ok }` (or `ok:false` with an error, then closes).
-- After handshake:
-  - Requests: `{type:"req", id, method, params}` → `{type:"res", id, ok, payload|error}`
-  - Events: `{type:"event", event, payload, seq?, stateVersion?}`
-- Structured presence entries: `{host, ip, version, platform?, deviceFamily?, modelIdentifier?, mode, lastInputSeconds?, ts, reason?, tags?[], instanceId? }` (for WS clients, `instanceId` comes from `connect.client.instanceId`).
-- `agent` responses are two-stage: first `res` ack `{runId,status:"accepted"}`, then a final `res` `{runId,status:"ok"|"error",summary}` after the run finishes; streamed output arrives as `event:"agent"`.
+## 协议（操作员视图）
+- 完整文档：[网关协议](/gateway/protocol) 和 [桥接协议（旧版）](/gateway/bridge-protocol)。
+- 客户端的强制第一帧：`req {type:"req", id, method:"connect", params:{minProtocol,maxProtocol,client:{id,displayName?,version,platform,deviceFamily?,modelIdentifier?,mode,instanceId?}, caps, auth?, locale?, userAgent? } }`。
+- 网关回复 `res {type:"res", id, ok:true, payload:hello-ok }` （或带错误的 `ok:false`，然后关闭）。
+- 握手后：
+  - 请求：`{type:"req", id, method, params}` → `{type:"res", id, ok, payload|error}`
+  - 事件：`{type:"event", event, payload, seq?, stateVersion?}`
+- 结构化在线状态条目：`{host, ip, version, platform?, deviceFamily?, modelIdentifier?, mode, lastInputSeconds?, ts, reason?, tags?[], instanceId? }` （对于 WS 客户端，`instanceId` 来自 `connect.client.instanceId`）。
+- `agent` 响应分为两个阶段：首先是 `res` 确认 `{runId,status:"accepted"}`，然后在运行完成后最终的 `res` `{runId,status:"ok"|"error",summary}`；流式输出作为 `event:"agent"` 到达。
 
-## Methods (initial set)
-- `health` — full health snapshot (same shape as `clawdbot health --json`).
-- `status` — short summary.
-- `system-presence` — current presence list.
-- `system-event` — post a presence/system note (structured).
-- `send` — send a message via the active channel(s).
-- `agent` — run an agent turn (streams events back on same connection).
-- `node.list` — list paired + currently-connected nodes (includes `caps`, `deviceFamily`, `modelIdentifier`, `paired`, `connected`, and advertised `commands`).
-- `node.describe` — describe a node (capabilities + supported `node.invoke` commands; works for paired nodes and for currently-connected unpaired nodes).
-- `node.invoke` — invoke a command on a node (e.g. `canvas.*`, `camera.*`).
-- `node.pair.*` — pairing lifecycle (`request`, `list`, `approve`, `reject`, `verify`).
+## 方法（初始集）
+- `health` — 完整健康快照（与 `clawdbot health --json` 格式相同）。
+- `status` — 简短摘要。
+- `system-presence` — 当前在线状态列表。
+- `system-event` — 发布在线状态/系统备注（结构化）。
+- `send` — 通过活动通道发送消息。
+- `agent` — 运行代理回合（在同一条连接上流式传输事件）。
+- `node.list` — 列出已配对+当前已连接的节点（包括 `caps`、`deviceFamily`、`modelIdentifier`、`paired`、`connected` 和已公布的 `commands`）。
+- `node.describe` — 描述节点（功能+支持的 `node.invoke` 命令；适用于已配对的节点和当前已连接的未配对节点）。
+- `node.invoke` — 在节点上调用命令（例如 `canvas.*`、`camera.*`）。
+- `node.pair.*` — 配对生命周期（`request`、`list`、`approve`、`reject`、`verify`）。
 
-See also: [Presence](/concepts/presence) for how presence is produced/deduped and why a stable `client.instanceId` matters.
+另请参阅：[在线状态](/concepts/presence)，了解如何生成/去重在线状态以及为什么稳定的 `client.instanceId` 很重要。
 
-## Events
-- `agent` — streamed tool/output events from the agent run (seq-tagged).
-- `presence` — presence updates (deltas with stateVersion) pushed to all connected clients.
-- `tick` — periodic keepalive/no-op to confirm liveness.
-- `shutdown` — Gateway is exiting; payload includes `reason` and optional `restartExpectedMs`. Clients should reconnect.
+## 事件
+- `agent` — 来自代理运行的流式工具/输出事件（带有序列标记）。
+- `presence` — 推送到所有已连接客户端的在线状态更新（带有 stateVersion 的增量）。
+- `tick` — 定期保活/空操作以确认活跃性。
+- `shutdown` — 网关正在退出；负载包括 `reason` 和可选的 `restartExpectedMs`。客户端应该重新连接。
 
-## WebChat integration
-- WebChat is a native SwiftUI UI that talks directly to the Gateway WebSocket for history, sends, abort, and events.
-- Remote use goes through the same SSH/Tailscale tunnel; if a gateway token is configured, the client includes it during `connect`.
-- macOS app connects via a single WS (shared connection); it hydrates presence from the initial snapshot and listens for `presence` events to update the UI.
+## WebChat 集成
+- WebChat 是一个原生的 SwiftUI UI，直接与网关 WebSocket 对话以处理历史记录、发送、中止和事件。
+- 远程使用通过相同的 SSH/Tailscale 隧道；如果配置了网关令牌，客户端在 `connect` 期间包含它。
+- macOS 应用通过单个 WS（共享连接）连接；它从初始快照中加载在线状态并监听 `presence` 事件以更新 UI。
 
-## Typing and validation
-- Server validates every inbound frame with AJV against JSON Schema emitted from the protocol definitions.
-- Clients (TS/Swift) consume generated types (TS directly; Swift via the repo’s generator).
-- Protocol definitions are the source of truth; regenerate schema/models with:
+## 类型定义和验证
+- 服务器使用 AJV 验证每个传入帧，依据协议定义生成的 JSON Schema。
+- 客户端（TS/Swift）消费生成的类型（TS 直接；Swift 通过仓库的生成器）。
+- 协议定义是真实来源；使用以下命令重新生成 schema/模型：
   - `pnpm protocol:gen`
   - `pnpm protocol:gen:swift`
 
-## Connection snapshot
-- `hello-ok` includes a `snapshot` with `presence`, `health`, `stateVersion`, and `uptimeMs` plus `policy {maxPayload,maxBufferedBytes,tickIntervalMs}` so clients can render immediately without extra requests.
-- `health`/`system-presence` remain available for manual refresh, but are not required at connect time.
+## 连接快照
+- `hello-ok` 包含一个 `snapshot`，其中包含 `presence`、`health`、`stateVersion` 和 `uptimeMs` 以及 `policy {maxPayload,maxBufferedBytes,tickIntervalMs}`，因此客户端可以立即渲染而无需额外请求。
+- `health`/`system-presence` 仍可用于手动刷新，但在连接时不需要。
 
-## Error codes (res.error shape)
-- Errors use `{ code, message, details?, retryable?, retryAfterMs? }`.
-- Standard codes:
-  - `NOT_LINKED` — WhatsApp not authenticated.
-  - `AGENT_TIMEOUT` — agent did not respond within the configured deadline.
-  - `INVALID_REQUEST` — schema/param validation failed.
-  - `UNAVAILABLE` — Gateway is shutting down or a dependency is unavailable.
+## 错误代码（res.error 形状）
+- 错误使用 `{ code, message, details?, retryable?, retryAfterMs? }`。
+- 标准代码：
+  - `NOT_LINKED` — WhatsApp 未认证。
+  - `AGENT_TIMEOUT` — 代理未在配置的时间限制内响应。
+  - `INVALID_REQUEST` — schema/参数验证失败。
+  - `UNAVAILABLE` — 网关正在关闭或依赖项不可用。
 
-## Keepalive behavior
-- `tick` events (or WS ping/pong) are emitted periodically so clients know the Gateway is alive even when no traffic occurs.
-- Send/agent acknowledgements remain separate responses; do not overload ticks for sends.
+## 保活行为
+- `tick` 事件（或 WS ping/pong）定期发出，这样即使没有流量发生，客户端也知道网关是活跃的。
+- 发送/代理确认仍然是单独的响应；不要为发送而过度使用 tick。
 
-## Replay / gaps
-- Events are not replayed. Clients detect seq gaps and should refresh (`health` + `system-presence`) before continuing. WebChat and macOS clients now auto-refresh on gap.
+## 重播/间隙
+- 事件不会重播。客户端检测序列间隙，并应在继续之前刷新（`health` + `system-presence`）。WebChat 和 macOS 客户端现在会在出现间隙时自动刷新。
 
-## Supervision (macOS example)
-- Use launchd to keep the service alive:
-  - Program: path to `clawdbot`
-  - Arguments: `gateway`
-  - KeepAlive: true
-  - StandardOut/Err: file paths or `syslog`
-- On failure, launchd restarts; fatal misconfig should keep exiting so the operator notices.
-- LaunchAgents are per-user and require a logged-in session; for headless setups use a custom LaunchDaemon (not shipped).
-  - `clawdbot gateway install` writes `~/Library/LaunchAgents/com.openclaw.gateway.plist`
-    (or `com.openclaw.<profile>.plist`).
-  - `clawdbot doctor` audits the LaunchAgent config and can update it to current defaults.
+## 监管（macOS 示例）
+- 使用 launchd 使服务保持运行：
+  - 程序：`clawdbot` 的路径
+  - 参数：`gateway`
+  - KeepAlive：true
+  - StandardOut/Err：文件路径或 `syslog`
+- 失败时，launchd 会重启；严重错误配置应持续退出，以便操作员注意到。
+- LaunchAgents 是每用户且需要登录会话；对于无头设置，请使用自定义 LaunchDaemon（未随附）。
+  - `clawdbot gateway install` 写入 `~/Library/LaunchAgents/com.openclaw.gateway.plist`
+    （或 `com.openclaw.<profile>.plist`）。
+  - `clawdbot doctor` 审核 LaunchAgent 配置并可以将其更新为当前默认值。
 
-## Gateway service management (CLI)
+## 网关服务管理（CLI）
 
-Use the Gateway CLI for install/start/stop/restart/status:
+使用网关 CLI 进行安装/启动/停止/重启/状态查询：
 
 ```bash
 clawdbot gateway status
@@ -197,38 +197,38 @@ clawdbot gateway restart
 clawdbot logs --follow
 ```
 
-Notes:
-- `gateway status` probes the Gateway RPC by default using the service’s resolved port/config (override with `--url`).
-- `gateway status --deep` adds system-level scans (LaunchDaemons/system units).
-- `gateway status --no-probe` skips the RPC probe (useful when networking is down).
-- `gateway status --json` is stable for scripts.
-- `gateway status` reports **supervisor runtime** (launchd/systemd running) separately from **RPC reachability** (WS connect + status RPC).
-- `gateway status` prints config path + probe target to avoid “localhost vs LAN bind” confusion and profile mismatches.
-- `gateway status` includes the last gateway error line when the service looks running but the port is closed.
-- `logs` tails the Gateway file log via RPC (no manual `tail`/`grep` needed).
-- If other gateway-like services are detected, the CLI warns unless they are Clawdbot profile services.
-  We still recommend **one gateway per machine** for most setups; use isolated profiles/ports for redundancy or a rescue bot. See [Multiple gateways](/gateway/multiple-gateways).
-  - Cleanup: `clawdbot gateway uninstall` (current service) and `clawdbot doctor` (legacy migrations).
-- `gateway install` is a no-op when already installed; use `clawdbot gateway install --force` to reinstall (profile/env/path changes).
+注意事项：
+- `gateway status` 默认使用服务解析的端口/配置探测网关 RPC（可用 `--url` 覆盖）。
+- `gateway status --deep` 添加系统级扫描（LaunchDaemons/系统单元）。
+- `gateway status --no-probe` 跳过 RPC 探测（网络中断时有用）。
+- `gateway status --json` 对脚本来说是稳定的。
+- `gateway status` 分别报告 **监管运行时间**（launchd/systemd 运行）和 **RPC 可达性**（WS 连接 + 状态 RPC）。
+- `gateway status` 打印配置路径+探测目标以避免 "localhost 与 LAN 绑定" 混淆和配置文件不匹配。
+- 当服务看起来在运行但端口已关闭时，`gateway status` 包含最后的网关错误行。
+- `logs` 通过 RPC 跟踪网关文件日志（无需手动 `tail`/`grep`）。
+- 如果检测到其他类似网关的服务，CLI 会警告，除非它们是 Clawdbot 配置文件服务。
+  我们仍然建议大多数设置 **每台机器一个网关**；使用隔离的配置文件/端口进行冗余或救援机器人。参见 [多网关](/gateway/multiple-gateways)。
+  - 清理：`clawdbot gateway uninstall`（当前服务）和 `clawdbot doctor`（旧迁移）。
+- `gateway install` 在已安装时是无操作；使用 `clawdbot gateway install --force` 重新安装（配置文件/环境/路径更改）。
 
-Bundled mac app:
-- Clawdbot.app can bundle a Node-based gateway relay and install a per-user LaunchAgent labeled
-  `com.openclaw.gateway` (or `com.openclaw.<profile>`).
-- To stop it cleanly, use `clawdbot gateway stop` (or `launchctl bootout gui/$UID/com.openclaw.gateway`).
-- To restart, use `clawdbot gateway restart` (or `launchctl kickstart -k gui/$UID/com.openclaw.gateway`).
-  - `launchctl` only works if the LaunchAgent is installed; otherwise use `clawdbot gateway install` first.
-  - Replace the label with `com.openclaw.<profile>` when running a named profile.
+捆绑的 Mac 应用：
+- Clawdbot.app 可以捆绑基于 Node 的网关中继并安装每用户 LaunchAgent，标签为
+  `com.openclaw.gateway`（或 `com.openclaw.<profile>`）。
+- 要干净地停止它，请使用 `clawdbot gateway stop`（或 `launchctl bootout gui/$UID/com.openclaw.gateway`）。
+- 要重启，请使用 `clawdbot gateway restart`（或 `launchctl kickstart -k gui/$UID/com.openclaw.gateway`）。
+  - `launchctl` 仅在 LaunchAgent 已安装时才有效；否则请先使用 `clawdbot gateway install`。
+  - 运行命名配置文件时，将标签替换为 `com.openclaw.<profile>`。
 
-## Supervision (systemd user unit)
-Clawdbot installs a **systemd user service** by default on Linux/WSL2. We
-recommend user services for single-user machines (simpler env, per-user config).
-Use a **system service** for multi-user or always-on servers (no lingering
-required, shared supervision).
+## 监管（systemd 用户单元）
+Clawdbot 在 Linux/WSL2 上默认安装 **systemd 用户服务**。我们
+推荐单用户机器使用用户服务（更简单的环境，每用户配置）。
+对于多用户或常驻服务器，请使用 **系统服务**（不需要持久化
+运行，共享监管）。
 
-`clawdbot gateway install` writes the user unit. `clawdbot doctor` audits the
-unit and can update it to match the current recommended defaults.
+`clawdbot gateway install` 写入用户单元。`clawdbot doctor` 审核
+单元并可以更新它以匹配当前推荐的默认值。
 
-Create `~/.config/systemd/user/clawdbot-gateway[-<profile>].service`:
+创建 `~/.config/systemd/user/clawdbot-gateway[-<profile>].service`：
 ```
 [Unit]
 Description=Clawdbot Gateway (profile: <profile>, v<version>)
@@ -245,20 +245,20 @@ WorkingDirectory=/home/youruser
 [Install]
 WantedBy=default.target
 ```
-Enable lingering (required so the user service survives logout/idle):
+启用持久化（这样用户服务才能在注销/空闲后继续运行）：
 ```
 sudo loginctl enable-linger youruser
 ```
-Onboarding runs this on Linux/WSL2 (may prompt for sudo; writes `/var/lib/systemd/linger`).
-Then enable the service:
+入职过程在 Linux/WSL2 上运行此命令（可能提示 sudo；写入 `/var/lib/systemd/linger`）。
+然后启用服务：
 ```
 systemctl --user enable --now clawdbot-gateway[-<profile>].service
 ```
 
-**Alternative (system service)** - for always-on or multi-user servers, you can
-install a systemd **system** unit instead of a user unit (no lingering needed).
-Create `/etc/systemd/system/clawdbot-gateway[-<profile>].service` (copy the unit above,
-switch `WantedBy=multi-user.target`, set `User=` + `WorkingDirectory=`), then:
+**替代方案（系统服务）** - 对于常驻或多人服务器，您可以
+安装 systemd **系统** 单元而不是用户单元（不需要持久化运行）。
+创建 `/etc/systemd/system/clawdbot-gateway[-<profile>].service`（复制上面的单元，
+切换 `WantedBy=multi-user.target`，设置 `User=` + `WorkingDirectory=`），然后：
 ```
 sudo systemctl daemon-reload
 sudo systemctl enable --now clawdbot-gateway[-<profile>].service
@@ -266,27 +266,27 @@ sudo systemctl enable --now clawdbot-gateway[-<profile>].service
 
 ## Windows (WSL2)
 
-Windows installs should use **WSL2** and follow the Linux systemd section above.
+Windows 安装应使用 **WSL2** 并遵循上述 Linux systemd 部分。
 
-## Operational checks
-- Liveness: open WS and send `req:connect` → expect `res` with `payload.type="hello-ok"` (with snapshot).
-- Readiness: call `health` → expect `ok: true` and a linked channel in `linkChannel` (when applicable).
-- Debug: subscribe to `tick` and `presence` events; ensure `status` shows linked/auth age; presence entries show Gateway host and connected clients.
+## 操作检查
+- 活跃度：打开 WS 并发送 `req:connect` → 期望 `res` 带有 `payload.type="hello-ok"`（带快照）。
+- 准备就绪：调用 `health` → 期望 `ok: true` 和 `linkChannel` 中的链接通道（如适用）。
+- 调试：订阅 `tick` 和 `presence` 事件；确保 `status` 显示链接/认证时间；在线状态条目显示网关主机和已连接的客户端。
 
-## Safety guarantees
-- Assume one Gateway per host by default; if you run multiple profiles, isolate ports/state and target the right instance.
-- No fallback to direct Baileys connections; if the Gateway is down, sends fail fast.
-- Non-connect first frames or malformed JSON are rejected and the socket is closed.
-- Graceful shutdown: emit `shutdown` event before closing; clients must handle close + reconnect.
+## 安全保证
+- 默认假设每台主机一个网关；如果运行多个配置文件，请隔离端口/状态并定位正确实例。
+- 不回退到直接 Baileys 连接；如果网关宕机，发送操作快速失败。
+- 非连接的第一帧或格式错误的 JSON 被拒绝，套接字被关闭。
+- 优雅关闭：在关闭前发出 `shutdown` 事件；客户端必须处理关闭+重新连接。
 
-## CLI helpers
-- `clawdbot gateway health|status` — request health/status over the Gateway WS.
-- `openclaw-cn message send --target <num> --message "hi" [--media ...]` — send via Gateway (idempotent for WhatsApp).
-- `clawdbot agent --message "hi" --to <num>` — run an agent turn (waits for final by default).
-- `clawdbot gateway call <method> --params '{"k":"v"}'` — raw method invoker for debugging.
-- `clawdbot gateway stop|restart` — stop/restart the supervised gateway service (launchd/systemd).
-- Gateway helper subcommands assume a running gateway on `--url`; they no longer auto-spawn one.
+## CLI 辅助命令
+- `clawdbot gateway health|status` — 通过网关 WS 请求健康状况/状态。
+- `openclaw-cn message send --target <num> --message "hi" [--media ...]` — 通过网关发送（对 WhatsApp 幂等）。
+- `clawdbot agent --message "hi" --to <num>` — 运行代理回合（默认等待最终结果）。
+- `clawdbot gateway call <method> --params '{"k":"v"}'` — 用于调试的原始方法调用器。
+- `clawdbot gateway stop|restart` — 停止/重启受监管的网关服务（launchd/systemd）。
+- 网关辅助子命令假定在 `--url` 上运行的网关；它们不再自动产生一个。
 
-## Migration guidance
-- Retire uses of `clawdbot gateway` and the legacy TCP control port.
-- Update clients to speak the WS protocol with mandatory connect and structured presence.
+## 迁移指导
+- 停止使用 `clawdbot gateway` 和旧版 TCP 控制端口。
+- 更新客户端以使用带有强制连接和结构化在线状态的 WS 协议。
