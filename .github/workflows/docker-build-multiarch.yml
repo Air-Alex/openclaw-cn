@@ -10,7 +10,7 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/openclaw-cn
+  IMAGE_NAME: jiulingyun803/openclaw-cn
 
 jobs:
   build-and-push:

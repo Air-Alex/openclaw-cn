@@ -34,7 +34,7 @@
 
 ### Secret 1: DOCKERHUB_USERNAME
 - **名称**：`DOCKERHUB_USERNAME`
-- **值**：你的 Docker Hub 用户名
+- **值**：`jiulingyun803`
 
 ### Secret 2: DOCKERHUB_TOKEN
 - **名称**：`DOCKERHUB_TOKEN`
@@ -53,9 +53,9 @@ GitHub Actions 会自动为构建的镜像打上以下标签：
 
 | 触发条件 | 镜像标签 | 示例 |
 |---------|--------|------|
-| 推送到 `main` 分支 | `latest` | `username/openclaw-cn:latest` |
-| 推送版本标签 | 版本号 | `username/openclaw-cn:v2026.1.31` |
-| 推送分支提交 | 分支-SHA | `username/openclaw-cn:main-abc1234` |
+| 推送到 `main` 分支 | `latest` | `jiulingyun803/openclaw-cn:latest` |
+| 推送版本标签 | 版本号 | `jiulingyun803/openclaw-cn:v2026.1.31` |
+| 推送分支提交 | 分支-SHA | `jiulingyun803/openclaw-cn:main-abc1234` |
 | 拉取请求 | 不推送到 Docker Hub | （本地构建测试） |
 
 ## 使用预构建的镜像
@@ -64,7 +64,7 @@ GitHub Actions 会自动为构建的镜像打上以下标签：
 
 编辑 `.env` 文件：
 ```bash
-OPENCLAW_IMAGE=username/openclaw-cn:latest
+OPENCLAW_IMAGE=jiulingyun803/openclaw-cn:latest
 ```
 
 然后运行：
@@ -80,14 +80,14 @@ docker run -d \
   -p 18789:18789 \
   -v ~/.openclaw:/home/node/.openclaw \
   -v ~/clawd:/home/node/clawd \
-  username/openclaw-cn:latest \
+  jiulingyun803/openclaw-cn:latest \
   node dist/index.js gateway --bind 0.0.0.0 --port 18789
 ```
 
 ### 方法 3：使用改进的 docker-setup.sh
 
 ```bash
-export OPENCLAW_IMAGE="username/openclaw-cn:latest"
+export OPENCLAW_IMAGE="jiulingyun803/openclaw-cn:latest"
 ./docker-setup.sh
 ```
 

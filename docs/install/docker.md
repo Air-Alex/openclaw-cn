@@ -37,11 +37,9 @@ Docker 是 **可选的**。仅在您想要容器化网关或验证 Docker 流程
 如果您想使用预构建的镜像，设置环境变量：
 
 ```bash
-export OPENCLAW_IMAGE="username/openclaw-cn:latest"
+export OPENCLAW_IMAGE="jiulingyun803/openclaw-cn:latest"
 ./docker-setup.sh
 ```
-
-替换 `username` 为你在 Docker Hub 上的用户名。
 
 预构建镜像的优点：
 - ✅ **快速部署** — 无需本地构建，直接拉取镜像
@@ -460,8 +458,8 @@ Docker 会自动选择匹配你系统的镜像版本。
 最简单的方法是使用预构建镜像：
 
 ```bash
-# 1. 设置镜像名称（替换为你的 Docker Hub 用户名）
-export OPENCLAW_IMAGE="username/openclaw-cn:latest"
+# 1. 使用官方预构建镜像
+export OPENCLAW_IMAGE="jiulingyun803/openclaw-cn:latest"
 
 # 2. 运行一键部署脚本
 ./docker-setup.sh
@@ -476,7 +474,7 @@ export OPENCLAW_IMAGE="username/openclaw-cn:latest"
 
 ```bash
 # 拉取镜像
-docker pull username/openclaw-cn:latest
+docker pull jiulingyun803/openclaw-cn:latest
 
 # 运行网关
 docker run -d \
@@ -485,7 +483,7 @@ docker run -d \
   -e HOME=/home/node \
   -v ~/.openclaw:/home/node/.openclaw \
   -v ~/clawd:/home/node/clawd \
-  username/openclaw-cn:latest \
+  jiulingyun803/openclaw-cn:latest \
   node dist/index.js gateway --bind 0.0.0.0 --port 18789
 ```
 
@@ -494,7 +492,7 @@ docker run -d \
 编辑 `.env` 文件：
 
 ```bash
-OPENCLAW_IMAGE=username/openclaw-cn:latest
+OPENCLAW_IMAGE=jiulingyun803/openclaw-cn:latest
 ```
 
 然后运行：
@@ -533,7 +531,7 @@ docker compose up -d openclaw-cn-gateway
 ```yaml
 services:
   openclaw-gateway:
-    image: username/openclaw-cn:v2026.1.31
+    image: jiulingyun803/openclaw-cn:v2026.1.31
     restart: unless-stopped
     ports:
       - "18789:18789"
@@ -568,10 +566,9 @@ services:
 
 ```bash
 # 检查镜像是否存在
-docker pull username/openclaw-cn:latest
+docker pull jiulingyun803/openclaw-cn:latest
 
-# 如果失败，检查 Docker Hub 仓库是否公开
-# 或使用本地构建：
+# 如果失败，检查仓库是否公开，或尝试本地构建
 ./docker-setup.sh
 ```
 
@@ -582,7 +579,7 @@ docker pull username/openclaw-cn:latest
 1. 确保 Docker 已更新到最新版本
 2. 验证镜像拉取时自动选择了 ARM64 版本：
    ```bash
-   docker inspect username/openclaw-cn:latest | grep -i architecture
+   docker inspect jiulingyun803/openclaw-cn:latest | grep -i architecture
    ```
 3. 如果上述步骤不成功，使用本地构建：
    ```bash

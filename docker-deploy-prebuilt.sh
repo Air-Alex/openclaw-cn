@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Openclaw 中文版 Docker 一键部署脚本（使用预构建镜像）
 # 用法: ./docker-deploy-prebuilt.sh [docker-image-name]
-# 示例: ./docker-deploy-prebuilt.sh username/openclaw-cn:latest
+# 示例: ./docker-deploy-prebuilt.sh jiulingyun803/openclaw-cn:latest
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
 EXTRA_COMPOSE_FILE="$ROOT_DIR/docker-compose.extra.yml"
 
-# 默认使用本地构建的镜像，但可通过参数覆盖
-IMAGE_NAME="${1:-${OPENCLAW_IMAGE:-openclaw-cn:local}}"
+# 默认使用官方预构建镜像，但可通过参数覆盖
+IMAGE_NAME="${1:-${OPENCLAW_IMAGE:-jiulingyun803/openclaw-cn:latest}}"
 EXTRA_MOUNTS="${OPENCLAW_EXTRA_MOUNTS:-}"
 HOME_VOLUME_NAME="${OPENCLAW_HOME_VOLUME:-}"
 
@@ -178,7 +178,7 @@ else
   echo ""
   echo "可能的原因:"
   echo "  1. 网络连接问题 - 检查你的网络"
-  echo "  2. 镜像不存在 - 检查镜像名称是否正确"
+  echo "  2. 镜像不存在 - 检查镜像名称是否正确（推荐使用 jiulingyun803/openclaw-cn:latest）"
   echo "  3. 权限问题 - 如果是私有镜像，需要 'docker login'"
   echo ""
   exit 1
