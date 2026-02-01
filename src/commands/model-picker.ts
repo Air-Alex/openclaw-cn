@@ -270,11 +270,16 @@ export async function promptModelAllowlist(params: {
   agentDir?: string;
   allowedKeys?: string[];
   initialSelections?: string[];
+  preferredProvider?: string;
 }): Promise<PromptModelAllowlistResult> {
   const cfg = params.config;
   const existingKeys = resolveConfiguredModelKeys(cfg);
   const allowedKeys = normalizeModelKeys(params.allowedKeys ?? []);
   const allowedKeySet = allowedKeys.length > 0 ? new Set(allowedKeys) : null;
+  const preferredProviderRaw = params.preferredProvider?.trim();
+  const preferredProvider = preferredProviderRaw
+    ? normalizeProviderId(preferredProviderRaw)
+    : undefined;
   const resolved = resolveConfiguredModelRef({
     cfg,
     defaultProvider: DEFAULT_PROVIDER,
@@ -348,15 +353,33 @@ export async function promptModelAllowlist(params: {
     seen.add(key);
   };
 
-  const filteredCatalog = allowedKeySet
+  let filteredCatalog = allowedKeySet
     ? catalog.filter((entry) => allowedKeySet.has(modelKey(entry.provider, entry.id)))
     : catalog;
+
+  // Filter by preferredProvider if specified and no explicit allowedKeys
+  if (preferredProvider && !allowedKeySet) {
+    const providerFiltered = filteredCatalog.filter(
+      (entry) => normalizeProviderId(entry.provider) === preferredProvider,
+    );
+    // Only apply filter if we have models for this provider
+    if (providerFiltered.length > 0) {
+      filteredCatalog = providerFiltered;
+    }
+  }
 
   for (const entry of filteredCatalog) addModelOption(entry);
 
   const supplementalKeys = allowedKeySet ? allowedKeys : existingKeys;
   for (const key of supplementalKeys) {
     if (seen.has(key)) continue;
+    // Filter supplemental keys by preferredProvider if specified
+    if (preferredProvider && !allowedKeySet) {
+      const keyProvider = key.split("/")[0];
+      if (keyProvider && normalizeProviderId(keyProvider) !== preferredProvider) {
+        continue;
+      }
+    }
     options.push({
       value: key,
       label: key,
