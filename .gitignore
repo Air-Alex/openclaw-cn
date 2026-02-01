@@ -16,6 +16,11 @@ ui/src/ui/__screenshots__/
 ui/playwright-report/
 ui/test-results/
 
+# Docker 数据目录（相对于 docker-compose.yml）
+data/
+.openclaw/
+clawd/
+
 # Bun build artifacts
 *.bun-build
 apps/macos/.build/
