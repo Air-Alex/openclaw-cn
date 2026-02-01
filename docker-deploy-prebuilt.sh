@@ -5,8 +5,24 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
-EXTRA_COMPOSE_FILE="$ROOT_DIR/docker-compose.extra.yml"
+
+# 自动检测 docker-compose 文件（支持 .yml 和 .yaml）
+detect_compose_file() {
+  local dir="$1"
+  if [[ -f "$dir/docker-compose.yml" ]]; then
+    echo "$dir/docker-compose.yml"
+  elif [[ -f "$dir/docker-compose.yaml" ]]; then
+    echo "$dir/docker-compose.yaml"
+  else
+    echo "$dir/docker-compose.yml"  # 默认值，如果都不存在则用 .yml
+  fi
+}
+
+COMPOSE_FILE="$(detect_compose_file "$ROOT_DIR")"
+
+# 为额外的 compose 配置文件选择合适的扩展名（与主文件保持一致）
+COMPOSE_EXT="${COMPOSE_FILE##*.}"  # 获取主文件的扩展名
+EXTRA_COMPOSE_FILE="$ROOT_DIR/docker-compose.extra.$COMPOSE_EXT"
 
 # 默认使用官方预构建镜像，但可通过参数覆盖
 IMAGE_NAME="${1:-${OPENCLAW_IMAGE:-jiulingyun803/openclaw-cn:latest}}"
