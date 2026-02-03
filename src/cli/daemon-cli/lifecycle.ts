@@ -160,6 +160,7 @@ export async function runDaemonStop(opts: DaemonLifecycleOptions = {}) {
     result?: string;
     message?: string;
     error?: string;
+    hints?: string[];
     service?: {
       label: string;
       loaded: boolean;
@@ -170,8 +171,8 @@ export async function runDaemonStop(opts: DaemonLifecycleOptions = {}) {
     if (!json) return;
     emitDaemonActionJson({ action: "stop", ...payload });
   };
-  const fail = (message: string) => {
-    if (json) emit({ ok: false, error: message });
+  const fail = (message: string, hints?: string[]) => {
+    if (json) emit({ ok: false, error: message, hints });
     else defaultRuntime.error(message);
     defaultRuntime.exit(1);
   };
@@ -181,7 +182,16 @@ export async function runDaemonStop(opts: DaemonLifecycleOptions = {}) {
   try {
     loaded = await service.isLoaded({ env: process.env });
   } catch (err) {
-    fail(`Gateway service check failed: ${String(err)}`);
+    // 检测是否是 systemd 不可用错误，提供友好提示
+    if (process.platform === "linux") {
+      const { isSystemdUnavailableDetail } = await import("../../daemon/systemd-hints.js");
+      if (isSystemdUnavailableDetail(String(err))) {
+        const hints = renderSystemdUnavailableHints({ wsl: await isWSL() });
+        fail(`网关服务检查失败: ${String(err)}`, hints);
+        return;
+      }
+    }
+    fail(`网关服务检查失败: ${String(err)}`);
     return;
   }
   if (!loaded) {
@@ -251,7 +261,16 @@ export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promi
   try {
     loaded = await service.isLoaded({ env: process.env });
   } catch (err) {
-    fail(`Gateway service check failed: ${String(err)}`);
+    // 检测是否是 systemd 不可用错误，提供友好提示
+    if (process.platform === "linux") {
+      const { isSystemdUnavailableDetail } = await import("../../daemon/systemd-hints.js");
+      if (isSystemdUnavailableDetail(String(err))) {
+        const hints = renderSystemdUnavailableHints({ wsl: await isWSL() });
+        fail(`网关服务检查失败: ${String(err)}`, hints);
+        return false;
+      }
+    }
+    fail(`网关服务检查失败: ${String(err)}`);
     return false;
   }
   if (!loaded) {
