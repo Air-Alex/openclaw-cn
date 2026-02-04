@@ -218,6 +218,34 @@ export async function processFeishuMessage(
     }
   }
 
+  // ===== Text Command Detection =====
+  // Detect help triggers and Chinese command aliases
+  const textCommandResult = parseTextCommand(text);
+
+  if (textCommandResult.type === "help") {
+    // Respond with help menu
+    logger.debug(`Text command detected: help trigger`);
+    await sendMessageFeishu(
+      client,
+      chatId,
+      { text: getHelpMenuText() },
+      {
+        msgType: "text",
+        receiveIdType: "chat_id",
+      },
+    );
+    return;
+  }
+
+  // Convert Chinese command alias to slash command
+  if (textCommandResult.type === "command") {
+    const slashCommand = toSlashCommand(textCommandResult);
+    if (slashCommand) {
+      logger.debug(`Text command detected: ${text} -> ${slashCommand}`);
+      text = slashCommand;
+    }
+  }
+
   // Resolve media if present
   let media: FeishuMediaRef | null = null;
   if (msgType !== "text") {
