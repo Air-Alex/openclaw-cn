@@ -94,6 +94,7 @@ openclaw-cn channels add
       "im:chat.members:bot_access",
       "im:message",
       "im:message.group_at_msg:readonly",
+      "im:message.group_msg",
       "im:message.p2p_msg:readonly",
       "im:message:readonly",
       "im:message:send_as_bot",
@@ -108,6 +109,8 @@ openclaw-cn channels add
   }
 }
 ```
+
+> **注意**：`im:message.group_msg` 权限（获取群组中所有消息，属于敏感权限）允许机器人接收群组中所有消息（不仅仅是 @机器人的）。如果您需要配置 `requireMention: false` 让机器人无需 @ 也能响应，则必须添加此权限。
 
 ![配置应用权限](../images/feishu-step4-permissions.png)
 
@@ -272,6 +275,8 @@ openclaw-cn pairing approve feishu <配对码>
   }
 }
 ```
+
+⚠️ **重要**：启用此功能还需要在飞书开放平台添加敏感权限 `im:message.group_msg`（获取群组中所有消息）。否则飞书只会推送 @机器人的消息，无 @ 的消息根本不会到达网关。添加权限后需要**重新发布应用版本**才能生效。
 
 ### 仅允许特定用户在群组中使用
 
