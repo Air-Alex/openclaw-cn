@@ -195,7 +195,7 @@ export async function processFeishuMessage(
                     `配对码：${code}`,
                     "",
                     "请联系 OpenClaw 管理员执行以下命令以批准：",
-                    `openclaw pairing approve feishu ${code}`,
+                    `openclaw-cn pairing approve feishu ${code}`,
                   ].join("\n"),
                 },
                 { receiveIdType: "open_id" },

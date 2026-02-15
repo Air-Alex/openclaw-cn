@@ -78,12 +78,15 @@ export async function promptAuthConfig(
   const anthropicOAuth =
     authChoice === "setup-token" || authChoice === "token" || authChoice === "oauth";
 
+  const preferredProvider = resolvePreferredProviderForAuthChoice(authChoice);
+
   const allowlistSelection = await promptModelAllowlist({
     config: next,
     prompter,
     allowedKeys: anthropicOAuth ? ANTHROPIC_OAUTH_MODEL_KEYS : undefined,
     initialSelections: anthropicOAuth ? ["anthropic/claude-opus-4-6"] : undefined,
     message: anthropicOAuth ? "Anthropic OAuth models" : undefined,
+    preferredProvider,
   });
   if (allowlistSelection.models) {
     next = applyModelAllowlist(next, allowlistSelection.models);
