@@ -31,10 +31,6 @@ import {
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
 import { buildWorkspaceSkillSnapshot } from "../../agents/skills.js";
 import { getSkillsSnapshotVersion } from "../../agents/skills/refresh.js";
-import {
-  runSubagentAnnounceFlow,
-  type SubagentRunOutcome,
-} from "../../agents/subagent-announce.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
 import { hasNonzeroUsage } from "../../agents/usage.js";
 import { ensureAgentWorkspace } from "../../agents/workspace.js";
@@ -44,13 +40,10 @@ import {
   normalizeVerboseLevel,
   supportsXHighThinking,
 } from "../../auto-reply/thinking.js";
-import { type CliDeps } from "../../cli/outbound-send-deps.js";
-import {
-  resolveAgentMainSessionKey,
-  resolveSessionTranscriptPath,
-  updateSessionStore,
-} from "../../config/sessions.js";
+import { createOutboundSendDeps, type CliDeps } from "../../cli/outbound-send-deps.js";
+import { resolveSessionTranscriptPath, updateSessionStore } from "../../config/sessions.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
+import { deliverOutboundPayloads } from "../../infra/outbound/deliver.js";
 import { getRemoteSkillEligibility } from "../../infra/skills-remote.js";
 import { logWarn } from "../../logger.js";
 import { buildAgentMainSessionKey, normalizeAgentId } from "../../routing/session-key.js";
@@ -87,6 +80,16 @@ function matchesMessagingToolDeliveryTarget(
     return false;
   }
   return target.to === delivery.to;
+}
+
+function resolveCronDeliveryBestEffort(job: CronJob): boolean {
+  if (typeof job.delivery?.bestEffort === "boolean") {
+    return job.delivery.bestEffort;
+  }
+  if (job.payload.kind === "agentTurn" && typeof job.payload.bestEffortDeliver === "boolean") {
+    return job.payload.bestEffortDeliver;
+  }
+  return false;
 }
 
 export type RunCronAgentTurnResult = {
@@ -164,7 +167,6 @@ export async function runCronIsolatedAgentTurn(params: {
   };
   // Resolve model - prefer hooks.gmail.model for Gmail hooks.
   const isGmailHook = baseSessionKey.startsWith("hook:gmail:");
-  let hooksGmailModelApplied = false;
   const hooksGmailModelRef = isGmailHook
     ? resolveHooksGmailModel({
         cfg: params.cfg,
@@ -182,7 +184,6 @@ export async function runCronIsolatedAgentTurn(params: {
     if (status.allowed) {
       provider = hooksGmailModelRef.provider;
       model = hooksGmailModelRef.model;
-      hooksGmailModelApplied = true;
     }
   }
   const modelOverrideRaw =
@@ -211,28 +212,6 @@ export async function runCronIsolatedAgentTurn(params: {
     agentId,
     nowMs: now,
   });
-
-  // Respect session model override — check session.modelOverride before falling
-  // back to the default config model. This ensures /model changes are honoured
-  // by cron and isolated agent runs.
-  if (!modelOverride && !hooksGmailModelApplied) {
-    const sessionModelOverride = cronSession.sessionEntry.modelOverride?.trim();
-    if (sessionModelOverride) {
-      const sessionProviderOverride =
-        cronSession.sessionEntry.providerOverride?.trim() || resolvedDefault.provider;
-      const resolvedSessionOverride = resolveAllowedModelRef({
-        cfg: cfgWithAgentDefaults,
-        catalog: await loadCatalog(),
-        raw: `${sessionProviderOverride}/${sessionModelOverride}`,
-        defaultProvider: resolvedDefault.provider,
-        defaultModel: resolvedDefault.model,
-      });
-      if (!("error" in resolvedSessionOverride)) {
-        provider = resolvedSessionOverride.ref.provider;
-        model = resolvedSessionOverride.ref.model;
-      }
-    }
-  }
 
   // Resolve thinking level - job thinking > hooks.gmail.thinking > agent default
   const hooksGmailThinking = isGmailHook
@@ -316,7 +295,7 @@ export async function runCronIsolatedAgentTurn(params: {
   }
   if (deliveryRequested) {
     commandBody =
-      `${commandBody}\n\nDo not send messages via messaging tools. Return your summary as plain text; delivery is handled automatically. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.`.trim();
+      `${commandBody}\n\nReturn your summary as plain text; it will be delivered automatically. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.`.trim();
   }
 
   const existingSnapshot = cronSession.sessionEntry.skillsSnapshot;
@@ -452,6 +431,7 @@ export async function runCronIsolatedAgentTurn(params: {
   const firstText = payloads[0]?.text ?? "";
   const summary = pickSummaryFromPayloads(payloads) ?? pickSummaryFromOutput(firstText);
   const outputText = pickLastNonEmptyTextFromPayloads(payloads);
+  const deliveryBestEffort = resolveCronDeliveryBestEffort(params.job);
 
   // Skip delivery for heartbeat-only responses (HEARTBEAT_OK with no real content).
   const ackMaxChars = resolveHeartbeatAckMaxChars(agentCfg);
@@ -468,35 +448,47 @@ export async function runCronIsolatedAgentTurn(params: {
     );
 
   if (deliveryRequested && !skipHeartbeatDelivery && !skipMessagingToolDelivery) {
-    const requesterSessionKey = resolveAgentMainSessionKey({
-      cfg: cfgWithAgentDefaults,
-      agentId,
-    });
-    const useExplicitOrigin = deliveryPlan.channel !== "last" || Boolean(deliveryPlan.to?.trim());
-    const requesterOrigin = useExplicitOrigin
-      ? {
-          channel: resolvedDelivery.channel,
-          to: resolvedDelivery.to,
-          accountId: resolvedDelivery.accountId,
-          threadId: resolvedDelivery.threadId,
-        }
-      : undefined;
-    const outcome: SubagentRunOutcome = { status: "ok" };
-    const taskLabel = params.job.name?.trim() || "cron job";
-    await runSubagentAnnounceFlow({
-      childSessionKey: agentSessionKey,
-      childRunId: cronSession.sessionEntry.sessionId,
-      requesterSessionKey,
-      requesterOrigin,
-      requesterDisplayKey: requesterSessionKey,
-      task: taskLabel,
-      timeoutMs: 30_000,
-      cleanup: "keep",
-      roundOneReply: outputText ?? summary,
-      waitForCompletion: false,
-      label: `Cron: ${taskLabel}`,
-      outcome,
-    });
+    if (resolvedDelivery.error) {
+      if (!deliveryBestEffort) {
+        return {
+          status: "error",
+          error: resolvedDelivery.error.message,
+          summary,
+          outputText,
+        };
+      }
+      logWarn(`[cron:${params.job.id}] ${resolvedDelivery.error.message}`);
+      return { status: "ok", summary, outputText };
+    }
+    if (!resolvedDelivery.to) {
+      const message = "cron delivery target is missing";
+      if (!deliveryBestEffort) {
+        return {
+          status: "error",
+          error: message,
+          summary,
+          outputText,
+        };
+      }
+      logWarn(`[cron:${params.job.id}] ${message}`);
+      return { status: "ok", summary, outputText };
+    }
+    try {
+      await deliverOutboundPayloads({
+        cfg: cfgWithAgentDefaults,
+        channel: resolvedDelivery.channel,
+        to: resolvedDelivery.to,
+        accountId: resolvedDelivery.accountId,
+        threadId: resolvedDelivery.threadId,
+        payloads,
+        bestEffort: deliveryBestEffort,
+        deps: createOutboundSendDeps(params.deps),
+      });
+    } catch (err) {
+      if (!deliveryBestEffort) {
+        return { status: "error", summary, outputText, error: String(err) };
+      }
+    }
   }
 
   return { status: "ok", summary, outputText };
