@@ -7,6 +7,7 @@ import { resolveBrowserConfig, resolveProfile, shouldStartLocalBrowserServer } f
 import { ensureBrowserControlAuth, resolveBrowserControlAuth } from "./control-auth.js";
 import { browserMutationGuardMiddleware } from "./csrf.js";
 import { ensureChromeExtensionRelayServer } from "./extension-relay.js";
+import { isAuthorizedBrowserRequest } from "./http-auth.js";
 import { registerBrowserRoutes } from "./routes/index.js";
 import { type BrowserServerState, createBrowserRouteContext } from "./server-context.js";
 
@@ -31,6 +32,23 @@ export async function startBrowserControlServerFromConfig(): Promise<BrowserServ
   const app = express();
   app.use(express.json({ limit: "1mb" }));
   app.use(browserMutationGuardMiddleware());
+
+  let browserAuth = resolveBrowserControlAuth(cfg);
+  try {
+    const ensured = await ensureBrowserControlAuth({ cfg });
+    browserAuth = ensured.auth;
+  } catch {
+    // ignore - use default auth
+  }
+
+  if (browserAuth.token || browserAuth.password) {
+    app.use((req, res, next) => {
+      if (isAuthorizedBrowserRequest(req, browserAuth)) {
+        return next();
+      }
+      res.status(401).send("Unauthorized");
+    });
+  }
 
   const ctx = createBrowserRouteContext({
     getState: () => state,
