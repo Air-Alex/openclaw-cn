@@ -1,10 +1,42 @@
-import { loadConfig } from "../../config/config.js";
-import type { CostUsageSummary } from "../../infra/session-cost-usage.js";
-import { loadCostUsageSummary } from "../../infra/session-cost-usage.js";
-import { loadProviderUsageSummary } from "../../infra/provider-usage.js";
+import fs from "node:fs";
+import type { SessionEntry, SessionSystemPromptReport } from "../../config/sessions/types.js";
+import type {
+  CostUsageSummary,
+  SessionCostSummary,
+  SessionDailyLatency,
+  SessionDailyModelUsage,
+  SessionMessageCounts,
+  SessionLatencyStats,
+  SessionModelUsage,
+  SessionToolUsage,
+} from "../../infra/session-cost-usage.js";
 import type { GatewayRequestHandlers } from "./types.js";
+import { loadConfig } from "../../config/config.js";
+import { resolveSessionFilePath } from "../../config/sessions/paths.js";
+import { loadProviderUsageSummary } from "../../infra/provider-usage.js";
+import {
+  loadCostUsageSummary,
+  loadSessionCostSummary,
+  loadSessionUsageTimeSeries,
+  discoverAllSessions,
+  type DiscoveredSession,
+} from "../../infra/session-cost-usage.js";
+import { parseAgentSessionKey } from "../../routing/session-key.js";
+import {
+  ErrorCodes,
+  errorShape,
+  formatValidationErrors,
+  validateSessionsUsageParams,
+} from "../protocol/index.js";
+import {
+  listAgentsForGateway,
+  loadCombinedSessionStoreForGateway,
+  loadSessionEntry,
+} from "../session-utils.js";
 
 const COST_USAGE_CACHE_TTL_MS = 30_000;
+
+type DateRange = { startMs: number; endMs: number };
 
 type CostUsageCacheEntry = {
   summary?: CostUsageSummary;
@@ -12,57 +44,213 @@ type CostUsageCacheEntry = {
   inFlight?: Promise<CostUsageSummary>;
 };
 
-const costUsageCache = new Map<number, CostUsageCacheEntry>();
+const costUsageCache = new Map<string, CostUsageCacheEntry>();
 
-const parseDays = (raw: unknown): number => {
-  if (typeof raw === "number" && Number.isFinite(raw)) return Math.floor(raw);
-  if (typeof raw === "string" && raw.trim() !== "") {
-    const parsed = Number(raw);
-    if (Number.isFinite(parsed)) return Math.floor(parsed);
+/**
+ * Parse a date string (YYYY-MM-DD) to start of day timestamp in UTC.
+ * Returns undefined if invalid.
+ */
+const parseDateToMs = (raw: unknown): number | undefined => {
+  if (typeof raw !== "string" || !raw.trim()) {
+    return undefined;
   }
-  return 30;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw.trim());
+  if (!match) {
+    return undefined;
+  }
+  const [, year, month, day] = match;
+  // Use UTC to ensure consistent behavior across timezones
+  const ms = Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day));
+  if (Number.isNaN(ms)) {
+    return undefined;
+  }
+  return ms;
 };
 
+const parseDays = (raw: unknown): number | undefined => {
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.floor(raw);
+  }
+  if (typeof raw === "string" && raw.trim() !== "") {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) {
+      return Math.floor(parsed);
+    }
+  }
+  return undefined;
+};
+
+/**
+ * Get date range from params (startDate/endDate or days).
+ * Falls back to last 30 days if not provided.
+ */
+const parseDateRange = (params: {
+  startDate?: unknown;
+  endDate?: unknown;
+  days?: unknown;
+}): DateRange => {
+  const now = new Date();
+  // Use UTC for consistent date handling
+  const todayStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const todayEndMs = todayStartMs + 24 * 60 * 60 * 1000 - 1;
+
+  const startMs = parseDateToMs(params.startDate);
+  const endMs = parseDateToMs(params.endDate);
+
+  if (startMs !== undefined && endMs !== undefined) {
+    // endMs should be end of day
+    return { startMs, endMs: endMs + 24 * 60 * 60 * 1000 - 1 };
+  }
+
+  const days = parseDays(params.days);
+  if (days !== undefined) {
+    const clampedDays = Math.max(1, days);
+    const start = todayStartMs - (clampedDays - 1) * 24 * 60 * 60 * 1000;
+    return { startMs: start, endMs: todayEndMs };
+  }
+
+  // Default to last 30 days
+  const defaultStartMs = todayStartMs - 29 * 24 * 60 * 60 * 1000;
+  return { startMs: defaultStartMs, endMs: todayEndMs };
+};
+
+type DiscoveredSessionWithAgent = DiscoveredSession & { agentId: string };
+
+async function discoverAllSessionsForUsage(params: {
+  config: ReturnType<typeof loadConfig>;
+  startMs: number;
+  endMs: number;
+}): Promise<DiscoveredSessionWithAgent[]> {
+  const agents = listAgentsForGateway(params.config).agents;
+  const results = await Promise.all(
+    agents.map(async (agent) => {
+      const sessions = await discoverAllSessions({
+        agentId: agent.id,
+        startMs: params.startMs,
+        endMs: params.endMs,
+      });
+      return sessions.map((session) => ({ ...session, agentId: agent.id }));
+    }),
+  );
+  return results.flat().toSorted((a, b) => b.mtime - a.mtime);
+}
+
 async function loadCostUsageSummaryCached(params: {
-  days: number;
+  startMs: number;
+  endMs: number;
   config: ReturnType<typeof loadConfig>;
 }): Promise<CostUsageSummary> {
-  const days = Math.max(1, params.days);
+  const cacheKey = `${params.startMs}-${params.endMs}`;
   const now = Date.now();
-  const cached = costUsageCache.get(days);
+  const cached = costUsageCache.get(cacheKey);
   if (cached?.summary && cached.updatedAt && now - cached.updatedAt < COST_USAGE_CACHE_TTL_MS) {
     return cached.summary;
   }
 
   if (cached?.inFlight) {
-    if (cached.summary) return cached.summary;
+    if (cached.summary) {
+      return cached.summary;
+    }
     return await cached.inFlight;
   }
 
   const entry: CostUsageCacheEntry = cached ?? {};
-  const inFlight = loadCostUsageSummary({ days, config: params.config })
+  const inFlight = loadCostUsageSummary({
+    startMs: params.startMs,
+    endMs: params.endMs,
+    config: params.config,
+  })
     .then((summary) => {
-      costUsageCache.set(days, { summary, updatedAt: Date.now() });
+      costUsageCache.set(cacheKey, { summary, updatedAt: Date.now() });
       return summary;
     })
     .catch((err) => {
-      if (entry.summary) return entry.summary;
+      if (entry.summary) {
+        return entry.summary;
+      }
       throw err;
     })
     .finally(() => {
-      const current = costUsageCache.get(days);
+      const current = costUsageCache.get(cacheKey);
       if (current?.inFlight === inFlight) {
         current.inFlight = undefined;
-        costUsageCache.set(days, current);
+        costUsageCache.set(cacheKey, current);
       }
     });
 
   entry.inFlight = inFlight;
-  costUsageCache.set(days, entry);
+  costUsageCache.set(cacheKey, entry);
 
-  if (entry.summary) return entry.summary;
+  if (entry.summary) {
+    return entry.summary;
+  }
   return await inFlight;
 }
+
+// Exposed for unit tests (kept as a single export to avoid widening the public API surface).
+export const __test = {
+  parseDateToMs,
+  parseDays,
+  parseDateRange,
+  discoverAllSessionsForUsage,
+  loadCostUsageSummaryCached,
+  costUsageCache,
+};
+
+export type SessionUsageEntry = {
+  key: string;
+  label?: string;
+  sessionId?: string;
+  updatedAt?: number;
+  agentId?: string;
+  channel?: string;
+  chatType?: string;
+  origin?: {
+    label?: string;
+    provider?: string;
+    surface?: string;
+    chatType?: string;
+    from?: string;
+    to?: string;
+    accountId?: string;
+    threadId?: string | number;
+  };
+  modelOverride?: string;
+  providerOverride?: string;
+  modelProvider?: string;
+  model?: string;
+  usage: SessionCostSummary | null;
+  contextWeight?: SessionSystemPromptReport | null;
+};
+
+export type SessionsUsageAggregates = {
+  messages: SessionMessageCounts;
+  tools: SessionToolUsage;
+  byModel: SessionModelUsage[];
+  byProvider: SessionModelUsage[];
+  byAgent: Array<{ agentId: string; totals: CostUsageSummary["totals"] }>;
+  byChannel: Array<{ channel: string; totals: CostUsageSummary["totals"] }>;
+  latency?: SessionLatencyStats;
+  dailyLatency?: SessionDailyLatency[];
+  modelDaily?: SessionDailyModelUsage[];
+  daily: Array<{
+    date: string;
+    tokens: number;
+    cost: number;
+    messages: number;
+    toolCalls: number;
+    errors: number;
+  }>;
+};
+
+export type SessionsUsageResult = {
+  updatedAt: number;
+  startDate: string;
+  endDate: string;
+  sessions: SessionUsageEntry[];
+  totals: CostUsageSummary["totals"];
+  aggregates: SessionsUsageAggregates;
+};
 
 export const usageHandlers: GatewayRequestHandlers = {
   "usage.status": async ({ respond }) => {
@@ -71,8 +259,12 @@ export const usageHandlers: GatewayRequestHandlers = {
   },
   "usage.cost": async ({ respond, params }) => {
     const config = loadConfig();
-    const days = parseDays(params?.days);
-    const summary = await loadCostUsageSummaryCached({ days, config });
+    const { startMs, endMs } = parseDateRange({
+      startDate: params?.startDate,
+      endDate: params?.endDate,
+      days: params?.days,
+    });
+    const summary = await loadCostUsageSummaryCached({ startMs, endMs, config });
     respond(true, summary, undefined);
   },
   "sessions.usage": async ({ respond, params }) => {
@@ -99,7 +291,7 @@ export const usageHandlers: GatewayRequestHandlers = {
     const specificKey = typeof p.key === "string" ? p.key.trim() : null;
 
     // Load session store for named sessions
-    const { storePath, store } = loadCombinedSessionStoreForGateway(config);
+    const { store } = loadCombinedSessionStoreForGateway(config);
     const now = Date.now();
 
     // Merge discovered sessions with store entries
@@ -139,21 +331,9 @@ export const usageHandlers: GatewayRequestHandlers = {
       const sessionId = storeEntry?.sessionId ?? keyRest;
 
       // Resolve the session file path
-      let sessionFile: string;
-      try {
-        const pathOpts =
-          storePath && storePath !== "(multiple)"
-            ? { sessionsDir: path.dirname(storePath) }
-            : { agentId: agentIdFromKey };
-        sessionFile = resolveSessionFilePath(sessionId, storeEntry, pathOpts);
-      } catch {
-        respond(
-          false,
-          undefined,
-          errorShape(ErrorCodes.INVALID_REQUEST, `Invalid session reference: ${specificKey}`),
-        );
-        return;
-      }
+      const sessionFile = resolveSessionFilePath(sessionId, storeEntry, {
+        agentId: agentIdFromKey,
+      });
 
       try {
         const stats = fs.statSync(sessionFile);
@@ -576,25 +756,15 @@ export const usageHandlers: GatewayRequestHandlers = {
     }
 
     const config = loadConfig();
-    const { entry, storePath } = loadSessionEntry(key);
+    const { entry } = loadSessionEntry(key);
 
     // For discovered sessions (not in store), try using key as sessionId directly
     const parsed = parseAgentSessionKey(key);
     const agentId = parsed?.agentId;
     const rawSessionId = parsed?.rest ?? key;
     const sessionId = entry?.sessionId ?? rawSessionId;
-    let sessionFile: string;
-    try {
-      const pathOpts = storePath ? { sessionsDir: path.dirname(storePath) } : { agentId };
-      sessionFile = resolveSessionFilePath(sessionId, entry, pathOpts);
-    } catch {
-      respond(
-        false,
-        undefined,
-        errorShape(ErrorCodes.INVALID_REQUEST, `Invalid session key: ${key}`),
-      );
-      return;
-    }
+    const sessionFile =
+      entry?.sessionFile ?? resolveSessionFilePath(rawSessionId, entry, { agentId });
 
     const timeseries = await loadSessionUsageTimeSeries({
       sessionId,
@@ -628,25 +798,15 @@ export const usageHandlers: GatewayRequestHandlers = {
         : 200;
 
     const config = loadConfig();
-    const { entry, storePath } = loadSessionEntry(key);
+    const { entry } = loadSessionEntry(key);
 
     // For discovered sessions (not in store), try using key as sessionId directly
     const parsed = parseAgentSessionKey(key);
     const agentId = parsed?.agentId;
     const rawSessionId = parsed?.rest ?? key;
     const sessionId = entry?.sessionId ?? rawSessionId;
-    let sessionFile: string;
-    try {
-      const pathOpts = storePath ? { sessionsDir: path.dirname(storePath) } : { agentId };
-      sessionFile = resolveSessionFilePath(sessionId, entry, pathOpts);
-    } catch {
-      respond(
-        false,
-        undefined,
-        errorShape(ErrorCodes.INVALID_REQUEST, `Invalid session key: ${key}`),
-      );
-      return;
-    }
+    const sessionFile =
+      entry?.sessionFile ?? resolveSessionFilePath(rawSessionId, entry, { agentId });
 
     const { loadSessionLogs } = await import("../../infra/session-cost-usage.js");
     const logs = await loadSessionLogs({
