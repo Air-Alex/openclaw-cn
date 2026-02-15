@@ -18,6 +18,7 @@ import { createSessionsSendTool } from "./tools/sessions-send-tool.js";
 import { createSessionsSpawnTool } from "./tools/sessions-spawn-tool.js";
 import { createWebFetchTool, createWebSearchTool } from "./tools/web-tools.js";
 import { createTtsTool } from "./tools/tts-tool.js";
+import { resolveWorkspaceRoot } from "./workspace-dir.js";
 
 export function createClawdbotTools(options?: {
   browserControlUrl?: string;
@@ -57,6 +58,7 @@ export function createClawdbotTools(options?: {
   /** Explicit agent ID override for cron/hook sessions. */
   requesterAgentIdOverride?: string;
 }): AnyAgentTool[] {
+  const workspaceDir = resolveWorkspaceRoot(options?.workspaceDir);
   const imageTool = options?.agentDir?.trim()
     ? createImageTool({
         config: options?.config,
