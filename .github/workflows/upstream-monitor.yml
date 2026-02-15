@@ -1,0 +1,295 @@
+name: Upstream Release Monitor
+# 监听上游 openclaw/openclaw 的新 Release 发布
+# 使用 AI Agent 判断是否需要合并到本 fork
+
+on:
+  schedule:
+    # 每天 UTC 08:00（北京时间 16:00）检查上游新 Release
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+    inputs:
+      force_check:
+        description: '强制检查所有未处理的上游 Release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  UPSTREAM_REPO: "openclaw/openclaw"
+  CHECKLIST_FILE: "UPSTREAM_MERGE_CHECKLIST.md"
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-latest
+    outputs:
+      has_new_releases: ${{ steps.check.outputs.has_new }}
+      new_releases: ${{ steps.check.outputs.releases }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get last checked release tag
+        id: last_checked
+        run: |
+          # 从清单文件中提取最后处理的上游版本
+          LAST_TAG=$(grep -oE 'v2026\.[0-9]+\.[0-9]+(-[0-9]+)?' "$CHECKLIST_FILE" | sort -V | tail -1)
+          echo "last_tag=${LAST_TAG:-v2026.1.29}" >> "$GITHUB_OUTPUT"
+          echo "Last checked upstream tag: ${LAST_TAG:-v2026.1.29}"
+
+      - name: Check for new upstream releases
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LAST_TAG="${{ steps.last_checked.outputs.last_tag }}"
+          echo "Checking for releases newer than $LAST_TAG..."
+
+          # 获取上游所有 Release
+          RELEASES=$(gh api "repos/$UPSTREAM_REPO/releases" --paginate \
+            --jq "[.[] | select(.tag_name > \"$LAST_TAG\" and .draft == false and .prerelease == false) | {tag: .tag_name, date: .published_at, body: .body}]")
+
+          COUNT=$(echo "$RELEASES" | jq 'length')
+          echo "Found $COUNT new release(s)"
+
+          if [ "$COUNT" -gt 0 ]; then
+            echo "has_new=true" >> "$GITHUB_OUTPUT"
+            # 保存 release 数据供后续步骤使用
+            echo "$RELEASES" > /tmp/new-releases.json
+            echo "releases<<RELEASES_EOF" >> "$GITHUB_OUTPUT"
+            cat /tmp/new-releases.json >> "$GITHUB_OUTPUT"
+            echo "RELEASES_EOF" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_new=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  analyze-releases:
+    needs: check-upstream
+    if: needs.check-upstream.outputs.has_new_releases == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Save release data
+        run: |
+          cat << 'RELEASES_JSON' > /tmp/new-releases.json
+          ${{ needs.check-upstream.outputs.new_releases }}
+          RELEASES_JSON
+
+      - name: Analyze with AI Agent
+        id: analyze
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          # 支持的供应商: deepseek (推荐), siliconflow, zhipu, moonshot, qwen, openai, anthropic
+          AI_PROVIDER: ${{ vars.AI_PROVIDER || 'deepseek' }}
+          # 可选：自定义 API base URL（覆盖供应商默认值）
+          AI_BASE_URL: ${{ vars.AI_BASE_URL || '' }}
+          # 可选：自定义模型名称（覆盖供应商默认值）
+          AI_MODEL: ${{ vars.AI_MODEL || '' }}
+        run: |
+          # 提取 release notes 的每一条变更
+          RELEASE_BODY=$(cat /tmp/new-releases.json | jq -r '.[].body')
+
+          # 根据供应商设置 API 参数
+          case "$AI_PROVIDER" in
+            deepseek)
+              BASE_URL="${AI_BASE_URL:-https://api.deepseek.com/v1}"
+              MODEL="${AI_MODEL:-deepseek-chat}"
+              ;;
+            siliconflow)
+              BASE_URL="${AI_BASE_URL:-https://api.siliconflow.cn/v1}"
+              MODEL="${AI_MODEL:-deepseek-ai/DeepSeek-V3}"
+              ;;
+            moonshot)
+              BASE_URL="${AI_BASE_URL:-https://api.moonshot.cn/v1}"
+              MODEL="${AI_MODEL:-moonshot-v1-128k}"
+              ;;
+            qwen)
+              BASE_URL="${AI_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
+              MODEL="${AI_MODEL:-qwen-max}"
+              ;;
+            zhipu)
+              BASE_URL="${AI_BASE_URL:-https://open.bigmodel.cn/api/paas/v4}"
+              MODEL="${AI_MODEL:-glm-4-plus}"
+              ;;
+            openai)
+              BASE_URL="${AI_BASE_URL:-https://api.openai.com/v1}"
+              MODEL="${AI_MODEL:-gpt-4o}"
+              ;;
+            anthropic)
+              BASE_URL="${AI_BASE_URL:-https://api.anthropic.com}"
+              MODEL="${AI_MODEL:-claude-sonnet-4-20250514}"
+              ;;
+            *)
+              # 自定义 OpenAI 兼容供应商
+              BASE_URL="${AI_BASE_URL}"
+              MODEL="${AI_MODEL:-gpt-4o}"
+              ;;
+          esac
+
+          echo "Using provider: $AI_PROVIDER, model: $MODEL, base: $BASE_URL"
+
+          # 构造 AI prompt
+          cat << 'PROMPT_EOF' > /tmp/analysis-prompt.txt
+          你是一个代码合并分析 Agent。你的任务是分析上游 openclaw/openclaw 项目的 Release 变更，
+          判断哪些需要合并到 openclaw-cn（中文本地化 fork）。
+
+          ## 合并判断规则
+
+          ### 必须合并（设为 MERGE）:
+          1. 所有安全修复（Security/SSRF/XSS/injection/traversal/auth/CSRF 相关）
+          2. 核心引擎 bug 修复（Gateway/Sessions/Agents/Cron/Heartbeat/Compaction）
+          3. 内存泄漏/资源泄漏修复
+          4. 中国相关 Provider 支持（Moonshot/智谱/MiniMax/火山引擎/通义千问等）
+          5. 使用中渠道的 bug 修复：Telegram、Discord、WhatsApp、Slack、Signal、飞书/Feishu、Web UI、TUI
+          6. 新模型支持（Opus/Codex/GLM 等）
+          7. QMD 记忆系统修复（需标注"需对比本地实现"）
+          8. 流式输出修复
+          9. Config/配置系统修复
+          10. CJK/Unicode/中文相关修复
+
+          ### 可选合并（设为 OPTIONAL）:
+          1. 新功能增强（Web UI 新界面等）
+          2. 文档更新
+          3. CLI 改善
+          4. 非关键的 UI 调整
+          5. 测试改进
+
+          ### 跳过（设为 SKIP）:
+          1. 未使用渠道的修复：BlueBubbles、Tlon、Nostr、MS Teams、Twitch、Google Chat、iMessage、Mattermost、Nextcloud Talk、Line
+          2. iOS/Android 原生应用修改
+          3. macOS 应用专属修改（除非涉及 CJK/中文）
+          4. CI/CD 流水线修改
+          5. 纯测试代码（除非修复了使用中渠道的测试）
+
+          ## 输出格式
+
+          对每条变更输出一行 JSON：
+          ```json
+          {"action": "MERGE|OPTIONAL|SKIP", "priority": "P0|P1|P2|P3|P4|P5", "pr": "#XXXX", "release": "v2026.X.X", "description": "...", "category": "SECURITY|CRITICAL-BUG|CORE-FEATURE|MODEL|CHANNEL-FIX|NICE-TO-HAVE", "notes": "...", "conflict_risk": "LOW|MEDIUM|HIGH"}
+          ```
+
+          ## 上游 Release Notes
+
+          PROMPT_EOF
+
+          echo "$RELEASE_BODY" >> /tmp/analysis-prompt.txt
+
+          # 调用 AI API（所有中国供应商均兼容 OpenAI 格式）
+          if [ "$AI_PROVIDER" = "anthropic" ]; then
+            RESPONSE=$(curl -s "${BASE_URL}/v1/messages" \
+              -H "Content-Type: application/json" \
+              -H "x-api-key: $AI_API_KEY" \
+              -H "anthropic-version: 2023-06-01" \
+              -d "$(jq -n --arg model "$MODEL" --arg prompt "$(cat /tmp/analysis-prompt.txt)" '{
+                model: $model,
+                max_tokens: 8192,
+                messages: [{role: "user", content: $prompt}]
+              }')" | jq -r '.content[0].text')
+          else
+            # OpenAI 兼容格式（DeepSeek/SiliconFlow/Moonshot/Qwen/智谱/OpenAI 通用）
+            RESPONSE=$(curl -s "${BASE_URL}/chat/completions" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $AI_API_KEY" \
+              -d "$(jq -n --arg model "$MODEL" --arg prompt "$(cat /tmp/analysis-prompt.txt)" '{
+                model: $model,
+                messages: [{role: "user", content: $prompt}],
+                max_tokens: 8192,
+                temperature: 0.1
+              }')" | jq -r '.choices[0].message.content')
+          fi
+
+          if [ -z "$RESPONSE" ] || [ "$RESPONSE" = "null" ]; then
+            echo "::error::AI API call failed. Check AI_API_KEY and AI_PROVIDER settings."
+            exit 1
+          fi
+
+          echo "$RESPONSE" > /tmp/analysis-result.txt
+          echo "Analysis complete (${#RESPONSE} chars)"
+
+      - name: Update checklist
+        run: |
+          # 解析 AI 分析结果，追加到清单文件
+          RESULT=$(cat /tmp/analysis-result.txt)
+
+          # 提取所有 MERGE 和 OPTIONAL 条目
+          MERGE_ITEMS=$(echo "$RESULT" | grep -o '{.*}' | jq -c 'select(.action == "MERGE" or .action == "OPTIONAL")' 2>/dev/null || true)
+
+          if [ -z "$MERGE_ITEMS" ]; then
+            echo "No new items to merge"
+            exit 0
+          fi
+
+          # 获取当前日期
+          TODAY=$(date +%Y-%m-%d)
+
+          # 追加新发现的条目到清单
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "## 自动扫描新增条目 ($TODAY)"
+            echo ""
+            echo "| 状态 | 优先级 | 上游 PR | Release | 描述 | 类别 | 冲突风险 | 备注 |"
+            echo "|------|--------|---------|---------|------|------|----------|------|"
+
+            echo "$MERGE_ITEMS" | while IFS= read -r item; do
+              ACTION=$(echo "$item" | jq -r '.action')
+              PRIORITY=$(echo "$item" | jq -r '.priority')
+              PR=$(echo "$item" | jq -r '.pr')
+              RELEASE=$(echo "$item" | jq -r '.release')
+              DESC=$(echo "$item" | jq -r '.description')
+              CATEGORY=$(echo "$item" | jq -r '.category')
+              RISK=$(echo "$item" | jq -r '.conflict_risk')
+              NOTES=$(echo "$item" | jq -r '.notes')
+              STATUS="⬜"
+              [ "$ACTION" = "OPTIONAL" ] && STATUS="🔲"
+              echo "| $STATUS | $PRIORITY | $PR | $RELEASE | $DESC | $CATEGORY | $RISK | $NOTES |"
+            done
+          } >> "$CHECKLIST_FILE"
+
+      - name: Commit and push
+        run: |
+          git config user.name "upstream-monitor[bot]"
+          git config user.email "bot@openclaw-cn.dev"
+          git add "$CHECKLIST_FILE"
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          TAGS=$(cat /tmp/new-releases.json | jq -r '[.[].tag] | join(", ")')
+          git commit -m "chore: update upstream merge checklist ($TAGS)"
+          git push
+
+      - name: Create summary issue
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          MERGE_COUNT=$(grep -c '⬜' "$CHECKLIST_FILE" 2>/dev/null || echo "0")
+          OPTIONAL_COUNT=$(grep -c '🔲' "$CHECKLIST_FILE" 2>/dev/null || echo "0")
+          TAGS=$(cat /tmp/new-releases.json | jq -r '[.[].tag] | join(", ")')
+
+          if [ "$MERGE_COUNT" -gt 0 ] || [ "$OPTIONAL_COUNT" -gt 0 ]; then
+            gh issue create \
+              --title "上游更新: $TAGS - ${MERGE_COUNT} 项需合并, ${OPTIONAL_COUNT} 项可选" \
+              --body "## 上游新 Release 分析
+
+上游发布了新版本: **$TAGS**
+
+### 自动分析结果
+- 🔴 需要合并: **${MERGE_COUNT}** 项
+- 🔵 可选合并: **${OPTIONAL_COUNT}** 项
+
+### 下一步
+1. 查看 [UPSTREAM_MERGE_CHECKLIST.md](../blob/main/UPSTREAM_MERGE_CHECKLIST.md) 中新增的条目
+2. 使用 AI Agent 逐条处理合并
+3. 处理完成后标记 ✅
+
+### 优先级建议
+优先处理 P0 (安全) 和 P1 (关键修复) 条目。" \
+              --label "upstream,merge-needed"
+          fi
