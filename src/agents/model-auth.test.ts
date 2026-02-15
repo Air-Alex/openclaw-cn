@@ -1,7 +1,7 @@
+import type { Api, Model } from "@mariozechner/pi-ai";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { Api, Model } from "@mariozechner/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 
 const oauthFixture = {
@@ -16,7 +16,7 @@ describe("getApiKeyForModel", () => {
     const previousStateDir = process.env.OPENCLAW_STATE_DIR;
     const previousAgentDir = process.env.OPENCLAW_AGENT_DIR;
     const previousPiAgentDir = process.env.PI_CODING_AGENT_DIR;
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "clawdbot-oauth-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-oauth-"));
 
     try {
       process.env.OPENCLAW_STATE_DIR = tempDir;
@@ -99,7 +99,7 @@ describe("getApiKeyForModel", () => {
     const previousAgentDir = process.env.OPENCLAW_AGENT_DIR;
     const previousPiAgentDir = process.env.PI_CODING_AGENT_DIR;
     const previousOpenAiKey = process.env.OPENAI_API_KEY;
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "clawdbot-auth-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-auth-"));
 
     try {
       delete process.env.OPENAI_API_KEY;
@@ -140,7 +140,7 @@ describe("getApiKeyForModel", () => {
       } catch (err) {
         error = err;
       }
-      expect(String(error)).toContain("openai-codex/gpt-5.2");
+      expect(String(error)).toContain("openai-codex/gpt-5.3-codex");
     } finally {
       if (previousOpenAiKey === undefined) {
         delete process.env.OPENAI_API_KEY;
@@ -253,6 +253,30 @@ describe("getApiKeyForModel", () => {
         delete process.env.SYNTHETIC_API_KEY;
       } else {
         process.env.SYNTHETIC_API_KEY = previousSynthetic;
+      }
+    }
+  });
+
+  it("resolves Qianfan API key from env", async () => {
+    const previous = process.env.QIANFAN_API_KEY;
+
+    try {
+      process.env.QIANFAN_API_KEY = "qianfan-test-key";
+
+      vi.resetModules();
+      const { resolveApiKeyForProvider } = await import("./model-auth.js");
+
+      const resolved = await resolveApiKeyForProvider({
+        provider: "qianfan",
+        store: { version: 1, profiles: {} },
+      });
+      expect(resolved.apiKey).toBe("qianfan-test-key");
+      expect(resolved.source).toContain("QIANFAN_API_KEY");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.QIANFAN_API_KEY;
+      } else {
+        process.env.QIANFAN_API_KEY = previous;
       }
     }
   });
@@ -484,6 +508,102 @@ describe("getApiKeyForModel", () => {
         delete process.env.VOYAGE_API_KEY;
       } else {
         process.env.VOYAGE_API_KEY = previous;
+      }
+    }
+  });
+
+  it("strips embedded CR/LF from ANTHROPIC_API_KEY", async () => {
+    const previous = process.env.ANTHROPIC_API_KEY;
+
+    try {
+      process.env.ANTHROPIC_API_KEY = "sk-ant-test-\r\nkey";
+
+      vi.resetModules();
+      const { resolveEnvApiKey } = await import("./model-auth.js");
+
+      const resolved = resolveEnvApiKey("anthropic");
+      expect(resolved?.apiKey).toBe("sk-ant-test-key");
+      expect(resolved?.source).toContain("ANTHROPIC_API_KEY");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.ANTHROPIC_API_KEY;
+      } else {
+        process.env.ANTHROPIC_API_KEY = previous;
+      }
+    }
+  });
+
+  it("resolveEnvApiKey('huggingface') returns HUGGINGFACE_HUB_TOKEN when set", async () => {
+    const prevHub = process.env.HUGGINGFACE_HUB_TOKEN;
+    const prevHf = process.env.HF_TOKEN;
+    try {
+      delete process.env.HF_TOKEN;
+      process.env.HUGGINGFACE_HUB_TOKEN = "hf_hub_xyz";
+      vi.resetModules();
+      const { resolveEnvApiKey } = await import("./model-auth.js");
+      const resolved = resolveEnvApiKey("huggingface");
+      expect(resolved?.apiKey).toBe("hf_hub_xyz");
+      expect(resolved?.source).toContain("HUGGINGFACE_HUB_TOKEN");
+    } finally {
+      if (prevHub === undefined) {
+        delete process.env.HUGGINGFACE_HUB_TOKEN;
+      } else {
+        process.env.HUGGINGFACE_HUB_TOKEN = prevHub;
+      }
+      if (prevHf === undefined) {
+        delete process.env.HF_TOKEN;
+      } else {
+        process.env.HF_TOKEN = prevHf;
+      }
+    }
+  });
+
+  it("resolveEnvApiKey('huggingface') prefers HUGGINGFACE_HUB_TOKEN over HF_TOKEN when both set", async () => {
+    const prevHub = process.env.HUGGINGFACE_HUB_TOKEN;
+    const prevHf = process.env.HF_TOKEN;
+    try {
+      process.env.HUGGINGFACE_HUB_TOKEN = "hf_hub_first";
+      process.env.HF_TOKEN = "hf_second";
+      vi.resetModules();
+      const { resolveEnvApiKey } = await import("./model-auth.js");
+      const resolved = resolveEnvApiKey("huggingface");
+      expect(resolved?.apiKey).toBe("hf_hub_first");
+      expect(resolved?.source).toContain("HUGGINGFACE_HUB_TOKEN");
+    } finally {
+      if (prevHub === undefined) {
+        delete process.env.HUGGINGFACE_HUB_TOKEN;
+      } else {
+        process.env.HUGGINGFACE_HUB_TOKEN = prevHub;
+      }
+      if (prevHf === undefined) {
+        delete process.env.HF_TOKEN;
+      } else {
+        process.env.HF_TOKEN = prevHf;
+      }
+    }
+  });
+
+  it("resolveEnvApiKey('huggingface') returns HF_TOKEN when only HF_TOKEN set", async () => {
+    const prevHub = process.env.HUGGINGFACE_HUB_TOKEN;
+    const prevHf = process.env.HF_TOKEN;
+    try {
+      delete process.env.HUGGINGFACE_HUB_TOKEN;
+      process.env.HF_TOKEN = "hf_abc123";
+      vi.resetModules();
+      const { resolveEnvApiKey } = await import("./model-auth.js");
+      const resolved = resolveEnvApiKey("huggingface");
+      expect(resolved?.apiKey).toBe("hf_abc123");
+      expect(resolved?.source).toContain("HF_TOKEN");
+    } finally {
+      if (prevHub === undefined) {
+        delete process.env.HUGGINGFACE_HUB_TOKEN;
+      } else {
+        process.env.HUGGINGFACE_HUB_TOKEN = prevHub;
+      }
+      if (prevHf === undefined) {
+        delete process.env.HF_TOKEN;
+      } else {
+        process.env.HF_TOKEN = prevHf;
       }
     }
   });
