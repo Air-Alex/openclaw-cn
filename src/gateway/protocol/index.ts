@@ -1,5 +1,4 @@
 import AjvPkg, { type ErrorObject } from "ajv";
-import type { SessionsPatchResult } from "../session-utils.types.js";
 import {
   type AgentEvent,
   AgentEventSchema,
@@ -12,18 +11,6 @@ import {
   AgentSummarySchema,
   type AgentsFileEntry,
   AgentsFileEntrySchema,
-  type AgentsCreateParams,
-  AgentsCreateParamsSchema,
-  type AgentsCreateResult,
-  AgentsCreateResultSchema,
-  type AgentsUpdateParams,
-  AgentsUpdateParamsSchema,
-  type AgentsUpdateResult,
-  AgentsUpdateResultSchema,
-  type AgentsDeleteParams,
-  AgentsDeleteParamsSchema,
-  type AgentsDeleteResult,
-  AgentsDeleteResultSchema,
   type AgentsFilesGetParams,
   AgentsFilesGetParamsSchema,
   type AgentsFilesGetResult,
@@ -173,8 +160,6 @@ import {
   SessionsResetParamsSchema,
   type SessionsResolveParams,
   SessionsResolveParamsSchema,
-  type SessionsUsageParams,
-  SessionsUsageParamsSchema,
   type ShutdownEvent,
   ShutdownEventSchema,
   type SkillsBinsParams,
@@ -238,9 +223,6 @@ export const validateAgentIdentityParams =
 export const validateAgentWaitParams = ajv.compile<AgentWaitParams>(AgentWaitParamsSchema);
 export const validateWakeParams = ajv.compile<WakeParams>(WakeParamsSchema);
 export const validateAgentsListParams = ajv.compile<AgentsListParams>(AgentsListParamsSchema);
-export const validateAgentsCreateParams = ajv.compile<AgentsCreateParams>(AgentsCreateParamsSchema);
-export const validateAgentsUpdateParams = ajv.compile<AgentsUpdateParams>(AgentsUpdateParamsSchema);
-export const validateAgentsDeleteParams = ajv.compile<AgentsDeleteParams>(AgentsDeleteParamsSchema);
 export const validateAgentsFilesListParams = ajv.compile<AgentsFilesListParams>(
   AgentsFilesListParamsSchema,
 );
@@ -288,8 +270,6 @@ export const validateSessionsDeleteParams = ajv.compile<SessionsDeleteParams>(
 export const validateSessionsCompactParams = ajv.compile<SessionsCompactParams>(
   SessionsCompactParamsSchema,
 );
-export const validateSessionsUsageParams =
-  ajv.compile<SessionsUsageParams>(SessionsUsageParamsSchema);
 export const validateConfigGetParams = ajv.compile<ConfigGetParams>(ConfigGetParamsSchema);
 export const validateConfigSetParams = ajv.compile<ConfigSetParams>(ConfigSetParamsSchema);
 export const validateConfigApplyParams = ajv.compile<ConfigApplyParams>(ConfigApplyParamsSchema);
@@ -431,7 +411,6 @@ export {
   SessionsResetParamsSchema,
   SessionsDeleteParamsSchema,
   SessionsCompactParamsSchema,
-  SessionsUsageParamsSchema,
   ConfigGetParamsSchema,
   ConfigSetParamsSchema,
   ConfigApplyParamsSchema,
@@ -453,12 +432,6 @@ export {
   WebLoginWaitParamsSchema,
   AgentSummarySchema,
   AgentsFileEntrySchema,
-  AgentsCreateParamsSchema,
-  AgentsCreateResultSchema,
-  AgentsUpdateParamsSchema,
-  AgentsUpdateResultSchema,
-  AgentsDeleteParamsSchema,
-  AgentsDeleteResultSchema,
   AgentsFilesListParamsSchema,
   AgentsFilesListResultSchema,
   AgentsFilesGetParamsSchema,
@@ -540,12 +513,6 @@ export type {
   WebLoginWaitParams,
   AgentSummary,
   AgentsFileEntry,
-  AgentsCreateParams,
-  AgentsCreateResult,
-  AgentsUpdateParams,
-  AgentsUpdateResult,
-  AgentsDeleteParams,
-  AgentsDeleteResult,
   AgentsFilesListParams,
   AgentsFilesListResult,
   AgentsFilesGetParams,
@@ -569,11 +536,9 @@ export type {
   SessionsPreviewParams,
   SessionsResolveParams,
   SessionsPatchParams,
-  SessionsPatchResult,
   SessionsResetParams,
   SessionsDeleteParams,
   SessionsCompactParams,
-  SessionsUsageParams,
   CronJob,
   CronListParams,
   CronStatusParams,
