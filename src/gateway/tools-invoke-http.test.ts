@@ -171,6 +171,7 @@ describe("POST /tools/invoke", () => {
           },
         },
       ],
+      // oxlint-disable-next-line typescript/no-explicit-any
     } as any;
 
     const port = await getFreePort();
@@ -190,14 +191,8 @@ describe("POST /tools/invoke", () => {
 
   it("respects tools.profile allowlist", async () => {
     testState.agentsConfig = {
-      list: [
-        {
-          id: "main",
-          tools: {
-            allow: ["sessions_list"],
-          },
-        },
-      ],
+      list: [{ id: "main", tools: { allow: ["sessions_send"] } }],
+      // oxlint-disable-next-line typescript/no-explicit-any
     } as any;
 
     const { writeConfigFile } = await import("../config/config.js");
@@ -217,6 +212,26 @@ describe("POST /tools/invoke", () => {
 
     expect(res.status).toBe(404);
 
+    await server.close();
+  });
+
+  it("denies gateway tool via HTTP", async () => {
+    testState.agentsConfig = {
+      list: [{ id: "main", tools: { allow: ["gateway"] } }],
+      // oxlint-disable-next-line typescript/no-explicit-any
+    } as any;
+
+    const port = await getFreePort();
+    const server = await startGatewayServer(port, { bind: "loopback" });
+    const token = resolveGatewayToken();
+
+    const res = await fetch(`http://127.0.0.1:${port}/tools/invoke`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ tool: "gateway", args: {}, sessionKey: "main" }),
+    });
+
+    expect(res.status).toBe(404);
     await server.close();
   });
 
