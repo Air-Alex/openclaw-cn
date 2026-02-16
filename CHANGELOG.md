@@ -10,6 +10,13 @@ Docs: https://docs.clawd.bot
 > 🤖 **模型/Provider 支持**：同步上游 17 项模型与 Provider 支持（P3-A + P3-B），覆盖中国 Provider、新模型、国际 Provider 等。
 > 📡 **频道 Bug 修复**：同步上游 47 项频道 Bug 修复（P4-A ~ P4-H），覆盖 Telegram/WhatsApp/Discord/Slack/Signal/飞书/Web UI/TUI 等全部通道。
 
+### ✨ 本版本新增功能
+
+- **QMD 记忆搜索系统**：新增 QMD（Quick Memory Documents）本地记忆搜索功能，支持将工作区文档建立向量索引并通过自然语言进行语义搜索；Agent 可在对话中自动检索相关记忆上下文，CLI 支持通过 `openclaw-cn memory search` 直接搜索
+- **飞书默认关闭流式输出**：飞书频道默认关闭 `streaming` 和 `blockStreaming`，减少 API 请求消耗，降低飞书 API 配额压力
+- **火山引擎引导修复**：修复 Volcengine 引导流程误用 Venice 配置导致的 401 认证错误和模型选择错误
+- **飞书出站会话修复**：修复 Agent 通过 `message` 工具向同频道发送文件时，因 Feishu `oc_` 前缀歧义（同时用于群聊和单聊）创建多余会话的问题
+
 ### 🤖 模型 / Provider 支持（Model & Provider）
 
 #### P3-A：中国相关 Provider

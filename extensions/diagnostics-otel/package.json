@@ -1,6 +1,6 @@
 {
   "name": "@clawdbot/diagnostics-otel",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "Clawdbot diagnostics OpenTelemetry exporter",
   "clawdbot": {
