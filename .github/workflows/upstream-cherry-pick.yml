@@ -276,3 +276,27 @@ jobs:
 
           gh issue comment "$ISSUE" -R "$GITHUB_REPOSITORY" --body-file /tmp/issue-comment.md
           echo "Commented on issue #$ISSUE"
+
+      # ============================================================
+      # 冲突 commit 交给 Copilot Agent 处理
+      # ============================================================
+      - name: Trigger Copilot resolve for conflicts
+        if: ${{ !inputs.dry_run && steps.tags.outputs.skip != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FAILED=$(grep -oP '❌ 失败: \K[0-9]+' /tmp/cherry-pick.log 2>/dev/null || echo "0")
+
+          if [ "$FAILED" -gt 0 ]; then
+            echo "🤖 检测到 $FAILED 个冲突 commit，触发 Copilot Agent 处理..."
+            gh workflow run upstream-copilot-resolve.yml \
+              -R "$GITHUB_REPOSITORY" \
+              --field from_tag="${{ steps.tags.outputs.from }}" \
+              --field to_tag="${{ steps.tags.outputs.to }}" \
+              --field priority="${{ inputs.priority }}" \
+              --field issue_number="${{ inputs.issue_number }}" \
+              --field dry_run=false
+            echo "✅ 已触发 upstream-copilot-resolve workflow"
+          else
+            echo "✅ 无冲突 commit，无需 Copilot 处理"
+          fi

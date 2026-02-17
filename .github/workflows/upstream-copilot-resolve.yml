@@ -1,0 +1,450 @@
+name: Upstream Copilot Resolve
+# 将 cherry-pick 冲突的 commit 分配给 GitHub Copilot Agent 自动解决
+# 支持: 手动触发 / upstream-cherry-pick 自动调用
+
+on:
+  workflow_dispatch:
+    inputs:
+      from_tag:
+        description: '起始版本'
+        type: string
+        default: 'auto'
+      to_tag:
+        description: '目标版本'
+        type: string
+        default: 'latest'
+      priority:
+        description: '合并优先级'
+        type: choice
+        options:
+          - 'P0'
+          - 'P0,P1'
+          - 'P0,P1,P2'
+        default: 'P0,P1'
+      issue_number:
+        description: '关联的上游更新 Issue 编号 (可选)'
+        type: string
+        default: ''
+      max_issues:
+        description: '最多创建多少个 Copilot Issue (0=不限)'
+        type: number
+        default: 5
+      dry_run:
+        description: '仅预览，不创建 Issue'
+        type: boolean
+        default: true
+
+  workflow_call:
+    inputs:
+      from_tag:
+        type: string
+        default: 'auto'
+      to_tag:
+        type: string
+        default: 'latest'
+      priority:
+        type: string
+        default: 'P0,P1'
+      issue_number:
+        type: string
+        default: ''
+      max_issues:
+        type: number
+        default: 10
+      dry_run:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup upstream remote
+        run: |
+          git remote add upstream https://github.com/openclaw/openclaw.git 2>/dev/null || true
+          git fetch upstream --tags --force
+          git fetch upstream main
+
+      - name: Resolve tags
+        id: tags
+        run: |
+          FROM="${{ inputs.from_tag }}"
+          TO="${{ inputs.to_tag }}"
+
+          if [ "$FROM" = "auto" ] || [ -z "$FROM" ]; then
+            if [ -f ".github/last-upstream-tag" ]; then
+              FROM=$(cat .github/last-upstream-tag | tr -d '[:space:]')
+            else
+              echo "::error::No .github/last-upstream-tag found"
+              exit 1
+            fi
+          fi
+
+          if [ "$TO" = "latest" ] || [ -z "$TO" ]; then
+            TO=$(git tag -l 'v*' --sort=-version:refname | grep -v '-' | head -1)
+          fi
+
+          echo "from=$FROM" >> "$GITHUB_OUTPUT"
+          echo "to=$TO" >> "$GITHUB_OUTPUT"
+          echo "Range: $FROM → $TO"
+
+      # ============================================================
+      # 步骤 1: 识别冲突 commit
+      # ============================================================
+      - name: Detect conflicting commits
+        id: conflicts
+        run: |
+          FROM="${{ steps.tags.outputs.from }}"
+          TO="${{ steps.tags.outputs.to }}"
+          P_FILTER=$(echo "${{ inputs.priority }}" | tr ',' '|' | tr '[:lower:]' '[:upper:]')
+
+          # 生成 commit 映射
+          chmod +x scripts/upstream-extract-commits.sh
+          ./scripts/upstream-extract-commits.sh "$FROM" "$TO" > /tmp/all-commits.json 2>/dev/null
+
+          # 筛选 MERGE 优先级
+          jq --arg p "$P_FILTER" \
+            '[.[] | select(.action == "MERGE" and (.priority | test("^(\($p))$")))]' \
+            /tmp/all-commits.json > /tmp/merge-commits.json
+
+          TOTAL=$(jq 'length' /tmp/merge-commits.json)
+          echo "待检测 commit: $TOTAL 个"
+
+          # 逐个尝试 cherry-pick 识别冲突
+          CONFLICTS="[]"
+          SUCCESS=0
+          CONFLICT=0
+
+          git config user.name "conflict-detect[bot]"
+          git config user.email "bot@openclaw-cn.dev"
+
+          for SHA in $(jq -r '.[].sha' /tmp/merge-commits.json); do
+            if git cherry-pick "$SHA" --no-commit 2>/dev/null; then
+              git reset --hard HEAD 2>/dev/null
+              SUCCESS=$((SUCCESS + 1))
+            else
+              git cherry-pick --abort 2>/dev/null || git reset --hard HEAD 2>/dev/null
+
+              # 收集冲突信息
+              INFO=$(jq -r ".[] | select(.sha == \"$SHA\")" /tmp/merge-commits.json)
+              MSG=$(echo "$INFO" | jq -r '.message')
+              PRIORITY=$(echo "$INFO" | jq -r '.priority')
+              CATEGORY=$(echo "$INFO" | jq -r '.category')
+
+              # 获取涉及的文件列表
+              FILES=$(git show "$SHA" --format="" --name-only | tr '\n' ',' | sed 's/,$//')
+
+              # 获取 diff 行数估算（用于分组策略）
+              DIFF_LINES=$(git show "$SHA" --format="" --stat | tail -1 | grep -oP '\d+ insertion|d+ deletion' | head -1 | grep -oP '\d+' || echo "0")
+
+              # 提取模块名（从 commit message 或文件路径）
+              MODULE=$(echo "$MSG" | grep -oP '^\w+\((\K[^)]+)' || echo "$FILES" | cut -d'/' -f2 | head -1)
+              [ -z "$MODULE" ] && MODULE="other"
+
+              CONFLICTS=$(echo "$CONFLICTS" | jq \
+                --arg sha "$SHA" \
+                --arg msg "$MSG" \
+                --arg priority "$PRIORITY" \
+                --arg category "$CATEGORY" \
+                --arg files "$FILES" \
+                --arg module "$MODULE" \
+                --arg diff_lines "$DIFF_LINES" \
+                '. + [{sha: $sha, message: $msg, priority: $priority, category: $category, files: $files, module: $module, diff_lines: ($diff_lines | tonumber)}]')
+
+              CONFLICT=$((CONFLICT + 1))
+            fi
+          done
+
+          echo "$CONFLICTS" > /tmp/conflicts.json
+
+          echo "conflict_count=$CONFLICT" >> "$GITHUB_OUTPUT"
+          echo "success_count=$SUCCESS" >> "$GITHUB_OUTPUT"
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "========================================="
+          echo "🔍 冲突检测结果:"
+          echo "   ✅ 可直接 cherry-pick: $SUCCESS"
+          echo "   ❌ 需 Copilot 处理:    $CONFLICT"
+          echo "========================================="
+
+      # ============================================================
+      # 步骤 2: 按模块分组冲突 commit
+      # ============================================================
+      - name: Group conflicts by module
+        id: groups
+        if: steps.conflicts.outputs.conflict_count != '0'
+        run: |
+          # 按 module 分组, 每组最多 5 个 commit (避免 Issue 过大)
+          MAX_PER_GROUP=5
+          jq --argjson max "$MAX_PER_GROUP" '
+            group_by(.module)
+            | [.[] | {
+                module: .[0].module,
+                commits: .,
+                count: length,
+                priorities: [.[].priority] | unique | join(",")
+              }]
+            | [.[] |
+                if .count <= $max then .
+                else
+                  range(0; .count; $max) as $i |
+                  {
+                    module: (.module + (if $i > 0 then "-part\(($i / $max) + 1 | floor)" else "" end)),
+                    commits: .commits[$i:$i+$max],
+                    count: ([.count - $i, $max] | min),
+                    priorities: .commits[$i:$i+$max] | [.[].priority] | unique | join(",")
+                  }
+                end
+              ]
+            | sort_by(.priorities)
+          ' /tmp/conflicts.json > /tmp/groups.json
+
+          GROUP_COUNT=$(jq 'length' /tmp/groups.json)
+          echo "group_count=$GROUP_COUNT" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "📦 分组结果 ($GROUP_COUNT 组):"
+          jq -r '.[] | "  [\(.module)] \(.count) 个 commit (\(.priorities))"' /tmp/groups.json
+
+      # ============================================================
+      # 步骤 3: 预览 (dry_run) 或创建 Issue
+      # ============================================================
+      - name: Preview mode
+        if: inputs.dry_run && steps.conflicts.outputs.conflict_count != '0'
+        run: |
+          {
+            echo "## 🔍 Copilot Resolve 预览"
+            echo ""
+            echo "### 冲突检测结果"
+            echo "| 指标 | 数量 |"
+            echo "|------|------|"
+            echo "| 可直接 cherry-pick | ${{ steps.conflicts.outputs.success_count }} |"
+            echo "| 需 Copilot 处理 | ${{ steps.conflicts.outputs.conflict_count }} |"
+            echo ""
+            echo "### 分组计划 (${{ steps.groups.outputs.group_count }} 组)"
+            echo ""
+
+            jq -r '.[] | "#### 模块: \(.module) (\(.count) 个 commit)\n| 优先级 | SHA | 描述 |\n|--------|-----|------|\n" + ([.commits[] | "| \(.priority) | `\(.sha[:10])` | \(.message) |"] | join("\n")) + "\n"' /tmp/groups.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create Copilot Issues
+        if: ${{ !inputs.dry_run && steps.conflicts.outputs.conflict_count != '0' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FROM="${{ steps.tags.outputs.from }}"
+          TO="${{ steps.tags.outputs.to }}"
+          MAX_ISSUES=${{ inputs.max_issues }}
+          PARENT_ISSUE="${{ inputs.issue_number }}"
+          CREATED=0
+          CREATED_ISSUES=""
+
+          GROUP_COUNT=$(jq 'length' /tmp/groups.json)
+
+          for i in $(seq 0 $((GROUP_COUNT - 1))); do
+            if [ "$MAX_ISSUES" -gt 0 ] && [ "$CREATED" -ge "$MAX_ISSUES" ]; then
+              echo "⚠️ 已达到最大 Issue 数量限制 ($MAX_ISSUES)，跳过剩余分组"
+              break
+            fi
+
+            GROUP=$(jq ".[$i]" /tmp/groups.json)
+            MODULE=$(echo "$GROUP" | jq -r '.module')
+            COUNT=$(echo "$GROUP" | jq -r '.count')
+            PRIORITIES=$(echo "$GROUP" | jq -r '.priorities')
+
+            echo ""
+            echo "━━━ 创建 Issue: $MODULE ($COUNT 个 commit) ━━━"
+
+            # 构建 Issue body
+            BODY_FILE="/tmp/issue-body-$i.md"
+
+            cat > "$BODY_FILE" <<ISSUE_EOF
+## 任务
+
+将以下 $COUNT 个上游 commit 的修改语义化应用到本 fork。这些 commit 无法直接 cherry-pick（存在冲突），需要理解修改意图后手动应用等效变更。
+
+### 上游版本范围
+- **来源**: openclaw/openclaw $FROM → $TO
+- **模块**: \`$MODULE\`
+- **优先级**: $PRIORITIES
+
+### 需要移植的 commit
+
+ISSUE_EOF
+
+            # 添加每个 commit 的详细 diff
+            for j in $(seq 0 $((COUNT - 1))); do
+              COMMIT=$(echo "$GROUP" | jq ".commits[$j]")
+              SHA=$(echo "$COMMIT" | jq -r '.sha')
+              MSG=$(echo "$COMMIT" | jq -r '.message')
+              PRIORITY=$(echo "$COMMIT" | jq -r '.priority')
+              FILES=$(echo "$COMMIT" | jq -r '.files')
+              SHORT_SHA="${SHA:0:12}"
+
+              cat >> "$BODY_FILE" <<COMMIT_EOF
+#### Commit $((j+1)): \`$SHORT_SHA\` ($PRIORITY)
+**描述**: $MSG
+**涉及文件**: \`$FILES\`
+
+<details>
+<summary>查看上游 diff</summary>
+
+\`\`\`diff
+$(git show "$SHA" --format="" 2>/dev/null | head -200)
+\`\`\`
+
+</details>
+
+COMMIT_EOF
+            done
+
+            # 添加品牌映射和工作指南
+            cat >> "$BODY_FILE" <<GUIDE_EOF
+---
+
+### 品牌映射规则
+
+本 fork 将 \`openclaw\` 品牌重命名为 \`clawdbot\`，具体映射：
+- 包名: \`openclaw\` → \`clawdbot-cn\`
+- CLI 命令: \`openclaw\` → \`clawdbot-cn\`
+- 配置目录: \`~/.openclaw/\` → \`~/.clawdbot-cn/\`
+- 文档引用中的品牌名保持 \`Clawdbot\`
+
+### 工作指南
+
+1. **获取上游代码** (如果需要查看更多上下文):
+   \`\`\`bash
+   git remote add upstream https://github.com/openclaw/openclaw.git 2>/dev/null || true
+   git fetch upstream --tags
+   \`\`\`
+
+2. **理解修改意图**: 仔细阅读上游 diff，理解每个改动的目的
+
+3. **找到 fork 中对应位置**: 文件路径可能相同，但内容因品牌重命名有差异
+
+4. **应用等效变更**: 不要复制粘贴上游代码，而是在 fork 当前代码基础上做等效修改
+
+5. **保护本地文件**: 以下文件/目录是本 fork 独有的，不要修改：
+   - \`docs/\` (已本地化)
+   - \`.github/workflows/\` (自定义 CI)
+   - \`CHANGELOG.md\`, \`README.md\` (本地化)
+   - \`package.json\` (品牌/名称/配置差异)
+   - \`extensions/feishu/\` (飞书渠道，上游无此扩展)
+
+6. **验证**: 修改完成后运行 \`pnpm build\` 确保编译通过
+
+### 验收标准
+
+- [ ] 所有 commit 的修改意图已正确理解并应用
+- [ ] 品牌名称正确映射
+- [ ] 未修改受保护文件
+- [ ] 代码风格与 fork 现有代码一致
+GUIDE_EOF
+
+            # 创建 Issue
+            ISSUE_TITLE="upstream($MODULE): 移植 $COUNT 个冲突 commit ($PRIORITIES) — $FROM→$TO"
+
+            gh label create "copilot-resolve" --color "7057ff" --force -R "$GITHUB_REPOSITORY" 2>/dev/null || true
+
+            ISSUE_URL=$(gh issue create -R "$GITHUB_REPOSITORY" \
+              --title "$ISSUE_TITLE" \
+              --body-file "$BODY_FILE" \
+              --label "upstream,copilot-resolve")
+
+            ISSUE_NUM=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')
+            echo "✅ 创建 Issue #$ISSUE_NUM: $ISSUE_TITLE"
+
+            # 分配 Copilot Agent
+            echo "🤖 分配给 Copilot Agent..."
+
+            # 通过 API 分配 Copilot
+            ASSIGN_RESULT=$(gh api -X POST \
+              "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUM/assignees" \
+              -f 'assignees[]=copilot-swe-agent' 2>&1) || true
+
+            # 检查分配结果
+            ASSIGNED=$(echo "$ASSIGN_RESULT" | jq -r '.assignees[]?.login // empty' 2>/dev/null | head -1)
+            if [ -n "$ASSIGNED" ]; then
+              echo "   ✅ 已分配给 $ASSIGNED"
+            else
+              echo "   ⚠️ API 分配未生效，可能需要在 GitHub UI 中手动分配 Copilot"
+            fi
+
+            CREATED=$((CREATED + 1))
+            CREATED_ISSUES="$CREATED_ISSUES #$ISSUE_NUM"
+
+            # 避免 API rate limit
+            sleep 2
+          done
+
+          echo ""
+          echo "========================================="
+          echo "🎉 共创建 $CREATED 个 Copilot Issue"
+          echo "   Issues: $CREATED_ISSUES"
+          echo "========================================="
+
+          # 输出到 GITHUB_OUTPUT
+          echo "created_count=$CREATED" >> "$GITHUB_OUTPUT"
+          echo "created_issues=$CREATED_ISSUES" >> "$GITHUB_OUTPUT"
+
+      # ============================================================
+      # 步骤 4: 回报结果到上游 Issue
+      # ============================================================
+      - name: Report to parent Issue
+        if: ${{ !inputs.dry_run && inputs.issue_number != '' && steps.conflicts.outputs.conflict_count != '0' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISSUE="${{ inputs.issue_number }}"
+
+          {
+            echo "## 🤖 Copilot Agent 冲突解决已启动"
+            echo ""
+            echo "| 指标 | 数量 |"
+            echo "|------|------|"
+            echo "| 可直接 cherry-pick | ${{ steps.conflicts.outputs.success_count }} |"
+            echo "| 需 Copilot 处理 | ${{ steps.conflicts.outputs.conflict_count }} |"
+            echo "| 已创建 Copilot Issue | ${{ steps.groups.outputs.group_count }} 组 |"
+            echo ""
+            echo "### Copilot Issue 列表"
+            echo ""
+            echo "以下 Issue 已分配给 Copilot Agent，每个 Issue 对应一个模块的冲突 commit："
+            echo ""
+
+            # 列出已创建的 Issue
+            jq -r '.[] | "- **\(.module)** (\(.count) 个 commit, \(.priorities))"' /tmp/groups.json
+
+            echo ""
+            echo "> 💡 Copilot Agent 将自动为每个 Issue 创建 PR。完成后请人工审查并合并。"
+          } > /tmp/parent-comment.md
+
+          gh issue comment "$ISSUE" -R "$GITHUB_REPOSITORY" --body-file /tmp/parent-comment.md
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## 🤖 Copilot Resolve 结果"
+            echo ""
+            echo "| 指标 | 数量 |"
+            echo "|------|------|"
+            echo "| 总 commit | ${{ steps.conflicts.outputs.total }} |"
+            echo "| ✅ 可直接 cherry-pick | ${{ steps.conflicts.outputs.success_count }} |"
+            echo "| ❌ 需 Copilot 处理 | ${{ steps.conflicts.outputs.conflict_count }} |"
+            if [ "${{ steps.conflicts.outputs.conflict_count }}" != "0" ]; then
+              echo "| 📦 分组数 | ${{ steps.groups.outputs.group_count }} |"
+            fi
+            echo ""
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              echo "> ℹ️ 预览模式，未创建 Issue"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
