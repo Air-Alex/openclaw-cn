@@ -1,6 +1,6 @@
 name: Upstream Release Monitor
 # 每日自动检测上游 openclaw/openclaw 新 Release
-# 检测 → 提取分类 → 创建 Issue → 自动 cherry-pick → 创建 PR
+# 检测 → AI 分析 → 创建 Issue → 自动 cherry-pick → 创建 PR
 
 on:
   schedule:
@@ -88,7 +88,7 @@ jobs:
           fi
 
   # ================================================================
-  # Job 2: 提取 commit、创建 Issue、更新基准
+  # Job 2: 提取 commit → AI 分析 → 创建 Issue → 上传 artifact
   # ================================================================
   extract-and-notify:
     needs: check-upstream
@@ -108,18 +108,202 @@ jobs:
           git fetch upstream --tags --force
           git fetch upstream main
 
-      - name: Extract and categorize commits
+      - name: Extract commits (mechanical)
         run: |
           chmod +x scripts/upstream-extract-commits.sh
           ./scripts/upstream-extract-commits.sh \
             "${{ needs.check-upstream.outputs.prev_tag }}" \
             "${{ needs.check-upstream.outputs.latest_tag }}" \
-            > /tmp/commits.json 2>/tmp/extract.log || {
+            > /tmp/commits-raw.json 2>/tmp/extract.log || {
             echo "::error::Extract script failed"
             cat /tmp/extract.log
             exit 1
           }
           cat /tmp/extract.log
+          # 初始文件由脚本规则分类，后续 AI 会覆盖
+          cp /tmp/commits-raw.json /tmp/commits.json
+
+      - name: AI analysis and refinement
+        id: ai
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_PROVIDER: ${{ vars.AI_PROVIDER || 'deepseek' }}
+          AI_BASE_URL: ${{ vars.AI_BASE_URL || '' }}
+          AI_MODEL: ${{ vars.AI_MODEL || '' }}
+        run: |
+          if [ -z "$AI_API_KEY" ]; then
+            echo "ℹ️ AI_API_KEY 未配置，使用脚本规则分类"
+            echo "ai_used=false" >> "$GITHUB_OUTPUT"
+            echo "ai_overrides=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # ---- 选择 AI 供应商 ----
+          case "$AI_PROVIDER" in
+            deepseek)    BASE_URL="${AI_BASE_URL:-https://api.deepseek.com/v1}"; MODEL="${AI_MODEL:-deepseek-chat}" ;;
+            siliconflow) BASE_URL="${AI_BASE_URL:-https://api.siliconflow.cn/v1}"; MODEL="${AI_MODEL:-deepseek-ai/DeepSeek-V3}" ;;
+            moonshot)    BASE_URL="${AI_BASE_URL:-https://api.moonshot.cn/v1}"; MODEL="${AI_MODEL:-moonshot-v1-128k}" ;;
+            qwen)        BASE_URL="${AI_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"; MODEL="${AI_MODEL:-qwen-max}" ;;
+            zhipu)       BASE_URL="${AI_BASE_URL:-https://open.bigmodel.cn/api/paas/v4}"; MODEL="${AI_MODEL:-glm-4-plus}" ;;
+            openai)      BASE_URL="${AI_BASE_URL:-https://api.openai.com/v1}"; MODEL="${AI_MODEL:-gpt-4o}" ;;
+            anthropic)   BASE_URL="${AI_BASE_URL:-https://api.anthropic.com}"; MODEL="${AI_MODEL:-claude-sonnet-4-20250514}" ;;
+            *)           BASE_URL="${AI_BASE_URL:-https://api.deepseek.com/v1}"; MODEL="${AI_MODEL:-deepseek-chat}" ;;
+          esac
+          echo "Using AI: $AI_PROVIDER ($MODEL)"
+
+          # ---- 准备 AI 输入：只发送非 SKIP 的 commit（MERGE + OPTIONAL + REVIEW） ----
+          jq -c '[.[] | select(.action != "SKIP") | {s: .sha[:10], m: .message, a: .action, p: .priority, c: .category}]' \
+            /tmp/commits-raw.json > /tmp/ai-candidates.json
+
+          CANDIDATE_COUNT=$(jq 'length' /tmp/ai-candidates.json)
+          echo "Sending $CANDIDATE_COUNT candidates to AI for review"
+
+          # ---- 获取 Release Notes ----
+          LATEST="${{ needs.check-upstream.outputs.latest_tag }}"
+          RELEASE_NOTES=$(gh api "repos/$UPSTREAM_REPO/releases" \
+            --jq "[.[] | select(.tag_name == \"$LATEST\") | .body][0]" 2>/dev/null || echo "")
+
+          # ---- 构建 Prompt ----
+          cat > /tmp/ai-prompt.txt << 'PROMPT_EOF'
+          你是 openclaw-cn（中国本地化 fork）的代码合并分析 Agent。
+          以下是从上游提取的 commit，已由脚本初步分类。请审查并修正分类。
+
+          ## 我们的渠道使用情况
+          - ✅ 使用中: Telegram, WhatsApp (Web provider), Web UI, TUI, 飞书 (Feishu)
+          - ❌ 不使用: Line, BlueBubbles, Tlon, Nostr, MS Teams, Twitch, Google Chat,
+            iMessage, Mattermost, Nextcloud Talk, Signal, Slack, Discord, Matrix, Zalo,
+            Copilot Proxy, Voice Call
+
+          ## 分类规则
+          1. **MERGE (P0)**: 核心安全修复（gateway/auth/SSRF/XSS/注入），不含未使用渠道的安全修复
+          2. **MERGE (P1)**: 核心引擎 bug（gateway/agent/session/memory/sandbox/config/cron），
+             使用中渠道的 bug 修复，CJK/Unicode 修复，流式输出修复
+          3. **REVIEW (P2)**: 飞书相关（需对比本地实现），新模型支持
+          4. **OPTIONAL (P3)**: 新功能、重构、CLI 改善、UI 增强
+          5. **SKIP (P5)**: 不使用渠道的任何修改（包括安全修复和测试），
+             iOS/Android/macOS 原生应用，CI/CD，纯文档，纯测试（除非涉及使用中渠道）
+
+          ## 关键判断
+          - "security/line" = Line 渠道安全修复 → **SKIP**（我们不用 Line）
+          - "security/nostr" = Nostr 安全修复 → **SKIP**
+          - "test (security/line)" = Line 渠道测试 → **SKIP**
+          - "fix (security/gateway)" = 网关核心安全 → **MERGE P0**
+          - "fix(discord): ..." → **SKIP**（不用 Discord）
+          - "feat(web): ..." → **OPTIONAL**（Web UI 增强）
+          - "fix(telegram): ..." → **MERGE P1**（使用中）
+
+          ## 输出格式
+          输出 JSON，对每个 commit 给出最终分类（输出全部 commit，不要省略）：
+          ```json
+          [
+            {"s": "sha前10位", "a": "MERGE", "p": "P0", "c": "SECURITY", "r": "核心网关安全修复"},
+            {"s": "sha前10位", "a": "SKIP", "p": "P5", "c": "UNUSED-CHANNEL", "r": "Line渠道,不使用"},
+            ...
+          ]
+          ```
+          只输出 JSON 数组，不要其他文字。
+
+          ## 待审查的 commit
+          PROMPT_EOF
+
+          cat /tmp/ai-candidates.json >> /tmp/ai-prompt.txt
+
+          if [ -n "$RELEASE_NOTES" ]; then
+            echo "" >> /tmp/ai-prompt.txt
+            echo "## 上游 Release Notes" >> /tmp/ai-prompt.txt
+            echo "$RELEASE_NOTES" >> /tmp/ai-prompt.txt
+          fi
+
+          # ---- 调用 AI API ----
+          if [ "$AI_PROVIDER" = "anthropic" ]; then
+            REQUEST_BODY=$(jq -n --arg model "$MODEL" --rawfile prompt /tmp/ai-prompt.txt '{
+              model: $model, max_tokens: 8192,
+              messages: [{role: "user", content: $prompt}]
+            }')
+            curl -s "${BASE_URL}/v1/messages" \
+              -H "Content-Type: application/json" \
+              -H "x-api-key: $AI_API_KEY" \
+              -H "anthropic-version: 2023-06-01" \
+              -d "$REQUEST_BODY" > /tmp/ai-response.json
+            RESPONSE=$(jq -r '.content[0].text' /tmp/ai-response.json 2>/dev/null)
+          else
+            REQUEST_BODY=$(jq -n --arg model "$MODEL" --rawfile prompt /tmp/ai-prompt.txt '{
+              model: $model,
+              messages: [{role: "user", content: $prompt}],
+              max_tokens: 8192, temperature: 0.1
+            }')
+            curl -s "${BASE_URL}/chat/completions" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $AI_API_KEY" \
+              -d "$REQUEST_BODY" > /tmp/ai-response.json
+            RESPONSE=$(jq -r '.choices[0].message.content' /tmp/ai-response.json 2>/dev/null)
+          fi
+
+          if [ -z "$RESPONSE" ] || [ "$RESPONSE" = "null" ]; then
+            echo "::warning::AI API 调用失败，使用脚本规则分类"
+            cat /tmp/ai-response.json >&2 || true
+            echo "ai_used=false" >> "$GITHUB_OUTPUT"
+            echo "ai_overrides=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "AI response received (${#RESPONSE} chars)"
+
+          # ---- 解析 AI 输出并应用到 commits.json ----
+          # 提取 JSON 数组（兼容 AI 在 JSON 外加了 markdown code fence 的情况）
+          AI_DECISIONS=$(echo "$RESPONSE" | sed -n '/^\[/,/^\]/p' | jq -c '.' 2>/dev/null)
+          if [ -z "$AI_DECISIONS" ]; then
+            # 尝试从 code fence 中提取
+            AI_DECISIONS=$(echo "$RESPONSE" | sed -n '/```json/,/```/p' | grep -v '```' | jq -c '.' 2>/dev/null)
+          fi
+
+          if [ -z "$AI_DECISIONS" ] || [ "$AI_DECISIONS" = "null" ]; then
+            echo "::warning::AI 输出解析失败，使用脚本规则分类"
+            echo "$RESPONSE" | head -20 >&2
+            echo "ai_used=false" >> "$GITHUB_OUTPUT"
+            echo "ai_overrides=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          OVERRIDE_COUNT=0
+
+          # 将 AI 决策保存为文件，用 jq 一次性合并（避免 eval + shell 循环）
+          echo "$AI_DECISIONS" > /tmp/ai-overrides.json
+
+          # 用 jq 合并 AI 决策到 commits.json
+          jq --slurpfile overrides /tmp/ai-overrides.json '
+            # 建立 sha→override 索引
+            ($overrides[0] | map({key: .s, value: .}) | from_entries) as $idx |
+            [.[] |
+              (.sha[:10]) as $prefix |
+              if $idx[$prefix] then
+                .action = $idx[$prefix].a |
+                .priority = $idx[$prefix].p |
+                (if $idx[$prefix].c then .category = $idx[$prefix].c else . end) |
+                (if $idx[$prefix].r then .ai_note = $idx[$prefix].r else . end)
+              else . end
+            ]' /tmp/commits.json > /tmp/commits-merged.json
+
+          mv /tmp/commits-merged.json /tmp/commits.json
+
+          # 打印被修改的条目
+          jq -r '.[] | select(.ai_note) | "  🔄 \(.sha[:10]): \(.action)/\(.priority) — \(.ai_note)"' /tmp/commits.json
+
+          # 统计被 AI 修改的条目数
+          OVERRIDE_COUNT=$(diff <(jq -c '[.[] | {s: .sha[:10], a: .action}]' /tmp/commits-raw.json) \
+            <(jq -c '[.[] | {s: .sha[:10], a: .action}]' /tmp/commits.json) | grep -c '^[<>]' || true)
+          OVERRIDE_COUNT=$((OVERRIDE_COUNT / 2))
+
+          echo "ai_used=true" >> "$GITHUB_OUTPUT"
+          echo "ai_overrides=$OVERRIDE_COUNT" >> "$GITHUB_OUTPUT"
+          echo "✅ AI 分析完成，修正了 $OVERRIDE_COUNT 项分类"
+
+      - name: Upload refined commits
+        uses: actions/upload-artifact@v4
+        with:
+          name: refined-commits
+          path: /tmp/commits.json
+          retention-days: 7
 
       - name: Calculate statistics
         id: stats
@@ -141,6 +325,8 @@ jobs:
           PREV="${{ needs.check-upstream.outputs.prev_tag }}"
           LATEST="${{ needs.check-upstream.outputs.latest_tag }}"
           TAGS="${{ needs.check-upstream.outputs.release_tags }}"
+          AI_USED="${{ steps.ai.outputs.ai_used }}"
+          AI_OVERRIDES="${{ steps.ai.outputs.ai_overrides }}"
 
           # 去重检查
           EXISTING=$(gh issue list -R "$GITHUB_REPOSITORY" --label "upstream" --state open \
@@ -164,6 +350,12 @@ jobs:
             echo "## 上游新 Release: $TAGS"
             echo ""
             echo "**范围**: \`$PREV\` → \`$LATEST\` | 共 **$TOTAL** 个 commit"
+            echo ""
+            if [ "$AI_USED" = "true" ]; then
+              echo "> 🧠 **AI 已审查分类**（修正了 **$AI_OVERRIDES** 项）"
+            else
+              echo "> ⚙️ 使用规则引擎分类（未配置 AI_API_KEY）"
+            fi
             echo ""
             echo "### 📊 分类摘要"
             echo ""
@@ -189,6 +381,19 @@ jobs:
               echo "_无需合并的 commit_"
             fi
             echo ""
+            if [ "$AI_USED" = "true" ] && [ "$AI_OVERRIDES" -gt 0 ]; then
+              echo "<details>"
+              echo "<summary>🧠 AI 修正记录 ($AI_OVERRIDES 项)</summary>"
+              echo ""
+              echo "| Commit | 描述 | AI 备注 |"
+              echo "|--------|------|---------|"
+              jq -r '.[] | select(.ai_note) |
+                "| `\(.sha[:10])` | \(.message | gsub("[|]"; "/") | .[0:60]) | \(.ai_note) |"' \
+                /tmp/commits.json
+              echo ""
+              echo "</details>"
+              echo ""
+            fi
             echo "> 🤖 自动 cherry-pick PR 创建后将在下方评论更新结果"
             echo ""
             if [ "$REVIEW" -gt 0 ]; then
