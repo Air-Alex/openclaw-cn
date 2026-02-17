@@ -205,9 +205,9 @@ jobs:
             echo "- [ ] CN 定制未被覆盖 (package.json, docs/, feishu/)"
           } > /tmp/pr-body.md
 
-          gh label create upstream --color "0075ca" 2>/dev/null || true
+          gh label create upstream --color "0075ca" --force -R "$GITHUB_REPOSITORY" 2>&1 || true
 
-          PR_URL=$(gh pr create \
+          PR_URL=$(gh pr create -R "$GITHUB_REPOSITORY" \
             --title "chore: upstream cherry-pick $PRIORITY ($FROM → $TO)" \
             --body-file /tmp/pr-body.md \
             --label "upstream" \
@@ -259,5 +259,5 @@ jobs:
             fi
           } > /tmp/issue-comment.md
 
-          gh issue comment "$ISSUE" --body-file /tmp/issue-comment.md
+          gh issue comment "$ISSUE" -R "$GITHUB_REPOSITORY" --body-file /tmp/issue-comment.md
           echo "Commented on issue #$ISSUE"
