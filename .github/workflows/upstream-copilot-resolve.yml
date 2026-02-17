@@ -269,7 +269,7 @@ jobs:
       - name: Report to parent Issue
         if: ${{ !inputs.dry_run && inputs.issue_number != '' && steps.conflicts.outputs.conflict_count != '0' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           ISSUE="${{ inputs.issue_number }}"
           CREATED="${{ steps.create.outputs.created_count }}"
