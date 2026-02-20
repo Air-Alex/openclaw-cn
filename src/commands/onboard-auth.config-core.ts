@@ -52,7 +52,7 @@ export function applyZaiConfig(cfg: ClawdbotConfig): ClawdbotConfig {
   const models = { ...cfg.agents?.defaults?.models };
   models[ZAI_DEFAULT_MODEL_REF] = {
     ...models[ZAI_DEFAULT_MODEL_REF],
-    alias: models[ZAI_DEFAULT_MODEL_REF]?.alias ?? "GLM",
+    alias: models[ZAI_DEFAULT_MODEL_REF]?.alias ?? "GLM-5",
   };
 
   const existingModel = cfg.agents?.defaults?.model;

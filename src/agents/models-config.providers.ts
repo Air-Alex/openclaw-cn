@@ -116,6 +116,17 @@ const DEEPSEEK_DEFAULT_COST = {
   cacheWrite: 0,
 };
 
+const ZAI_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
+const ZAI_DEFAULT_MODEL_ID = "glm-5";
+const ZAI_DEFAULT_CONTEXT_WINDOW = 200000;
+const ZAI_DEFAULT_MAX_TOKENS = 128000;
+const ZAI_DEFAULT_COST = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+};
+
 interface OllamaModel {
   name: string;
   modified_at: string;
@@ -543,6 +554,51 @@ function buildDeepseekProvider(): ProviderConfig {
   };
 }
 
+function buildZaiProvider(): ProviderConfig {
+  return {
+    baseUrl: ZAI_BASE_URL,
+    api: "openai-completions",
+    models: [
+      {
+        id: "glm-4.5",
+        name: "GLM-4.5",
+        reasoning: false,
+        input: ["text"],
+        cost: ZAI_DEFAULT_COST,
+        contextWindow: 128000,
+        maxTokens: 128000,
+      },
+      {
+        id: "glm-4.6",
+        name: "GLM-4.6",
+        reasoning: false,
+        input: ["text"],
+        cost: ZAI_DEFAULT_COST,
+        contextWindow: 198000,
+        maxTokens: 128000,
+      },
+      {
+        id: "glm-4.7",
+        name: "GLM-4.7",
+        reasoning: false,
+        input: ["text"],
+        cost: ZAI_DEFAULT_COST,
+        contextWindow: 198000,
+        maxTokens: 128000,
+      },
+      {
+        id: ZAI_DEFAULT_MODEL_ID,
+        name: "GLM-5",
+        reasoning: true,
+        input: ["text"],
+        cost: ZAI_DEFAULT_COST,
+        contextWindow: ZAI_DEFAULT_CONTEXT_WINDOW,
+        maxTokens: ZAI_DEFAULT_MAX_TOKENS,
+      },
+    ],
+  };
+}
+
 async function buildVeniceProvider(): Promise<ProviderConfig> {
   const models = await discoverVeniceModels();
   return {
@@ -647,6 +703,13 @@ export async function resolveImplicitProviders(params: {
     resolveApiKeyFromProfiles({ provider: "xiaomi", store: authStore });
   if (xiaomiKey) {
     providers.xiaomi = { ...buildXiaomiProvider(), apiKey: xiaomiKey };
+  }
+
+  const zaiKey =
+    resolveEnvApiKeyVarName("zai") ??
+    resolveApiKeyFromProfiles({ provider: "zai", store: authStore });
+  if (zaiKey) {
+    providers.zai = { ...buildZaiProvider(), apiKey: zaiKey };
   }
 
   const cloudflareProfiles = listProfilesForProvider(authStore, "cloudflare-ai-gateway");

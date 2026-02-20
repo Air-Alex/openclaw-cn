@@ -159,8 +159,8 @@ export const SYNTHETIC_MODEL_CATALOG = [
     id: "hf:zai-org/GLM-5",
     name: "GLM-5",
     reasoning: true,
-    input: ["text", "image"],
-    contextWindow: 256000,
+    input: ["text"],
+    contextWindow: 200000,
     maxTokens: 128000,
   },
   {

@@ -7,7 +7,7 @@ read_when:
 # GLM models
 
 GLM is a **model family** (not a company) available through the Z.AI platform. In Clawdbot, GLM
-models are accessed via the `zai` provider and model IDs like `zai/glm-4.7`.
+models are accessed via the `zai` provider and model IDs like `zai/glm-5` or `zai/glm-4.7`.
 
 ## CLI setup
 
@@ -20,7 +20,7 @@ openclaw-cn onboard --auth-choice zai-api-key
 ```json5
 {
   env: { ZAI_API_KEY: "sk-..." },
-  agents: { defaults: { model: { primary: "zai/glm-4.7" } } }
+  agents: { defaults: { model: { primary: "zai/glm-5" } } }
 }
 ```
 
