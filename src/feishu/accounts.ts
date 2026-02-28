@@ -1,6 +1,6 @@
 import { loadConfig } from "../config/config.js";
 import { normalizeAccountId } from "../routing/session-key.js";
-import type { FeishuConfig, FeishuAccountConfig, FeishuDomain } from "../config/types.feishu.js";
+import type { FeishuConfig, FeishuAccountConfig } from "../config/types.feishu.js";
 
 export type ResolvedFeishuAccount = {
   accountId: string;

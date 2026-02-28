@@ -1,10 +1,6 @@
 import type { ClawdbotConfig } from "../config/config.js";
 import type { DmPolicy, GroupPolicy, ReplyToMode } from "../config/types.base.js";
-import type {
-  FeishuAccountConfig,
-  FeishuDomain,
-  FeishuGroupConfig,
-} from "../config/types.feishu.js";
+import type { FeishuDomain, FeishuGroupConfig } from "../config/types.feishu.js";
 import { firstDefined } from "./access.js";
 
 export type ResolvedFeishuConfig = {
@@ -58,7 +54,7 @@ export function resolveFeishuConfig(params: {
     streaming: firstDefined((accountCfg as any)?.streaming, (feishuCfg as any)?.streaming) ?? false,
     replyToMode: firstDefined(accountCfg?.replyToMode, feishuCfg?.replyToMode) ?? "all",
     mediaMaxMb: firstDefined(accountCfg?.mediaMaxMb, feishuCfg?.mediaMaxMb) ?? 30,
-    groups: { ...(feishuCfg?.groups ?? {}), ...(accountCfg?.groups ?? {}) },
+    groups: { ...feishuCfg?.groups, ...accountCfg?.groups },
   };
 }
 

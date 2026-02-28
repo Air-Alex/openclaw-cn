@@ -18,7 +18,6 @@ import {
   sendMessageDiscord,
   sendPollDiscord,
   sendStickerDiscord,
-  sendVoiceMessageDiscord,
   unpinMessageDiscord,
 } from "../../discord/send.js";
 import { resolveDiscordChannelId } from "../../discord/targets.js";

@@ -202,8 +202,6 @@ export function registerChannelsCli(program: Command) {
       // However, the previous signature was (opts, command).
       // We need to adjust.
 
-      let finalOpts = opts;
-      let finalCommand = command;
       let channelName = channelArg;
 
       // Commander weirdness check: if we define argument, it comes first.

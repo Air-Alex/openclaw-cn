@@ -3,10 +3,9 @@ import express from "express";
 
 import { loadConfig } from "../config/config.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import { resolveBrowserConfig, resolveProfile, shouldStartLocalBrowserServer } from "./config.js";
+import { resolveBrowserConfig, shouldStartLocalBrowserServer } from "./config.js";
 import { ensureBrowserControlAuth, resolveBrowserControlAuth } from "./control-auth.js";
 import { browserMutationGuardMiddleware } from "./csrf.js";
-import { ensureChromeExtensionRelayServer } from "./extension-relay.js";
 import { isAuthorizedBrowserRequest } from "./http-auth.js";
 import { registerBrowserRoutes } from "./routes/index.js";
 import type { BrowserRouteRegistrar } from "./routes/types.js";

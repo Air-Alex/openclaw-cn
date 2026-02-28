@@ -45,12 +45,7 @@ import { searchKeyword, searchVector } from "./manager-search.js";
 import { ensureMemoryIndexSchema } from "./memory-schema.js";
 import { requireNodeSqlite } from "./sqlite.js";
 import { loadSqliteVecExtension } from "./sqlite-vec.js";
-import type {
-  MemoryEmbeddingProbeResult,
-  MemoryProviderStatus,
-  MemorySearchManager,
-  MemorySyncProgressUpdate as MemorySyncProgressUpdateType,
-} from "./types.js";
+import type { MemoryProviderStatus, MemorySearchManager } from "./types.js";
 
 type MemorySource = "memory" | "sessions";
 

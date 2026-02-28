@@ -2,14 +2,17 @@ import type express from "express";
 
 import type { BrowserRouteContext } from "../server-context.js";
 import type { BrowserRouteRegistrar } from "./types.js";
-import { getProfileContext, jsonError, toBoolean, toNumber, toStringOrEmpty } from "./utils.js";
+import { getProfileContext, jsonError, toNumber, toStringOrEmpty } from "./utils.js";
 
 export function registerBrowserTabRoutes(app: BrowserRouteRegistrar, ctx: BrowserRouteContext) {
   // Adapter to allow Express-typed handlers when underlying might be browser dispatcher
   const registrar = {
-    get: (path: string, handler: (req: express.Request, res: express.Response) => any) => app.get(path, handler as any),
-    post: (path: string, handler: (req: express.Request, res: express.Response) => any) => app.post(path, handler as any),
-    delete: (path: string, handler: (req: express.Request, res: express.Response) => any) => app.delete(path, handler as any),
+    get: (path: string, handler: (req: express.Request, res: express.Response) => any) =>
+      app.get(path, handler as any),
+    post: (path: string, handler: (req: express.Request, res: express.Response) => any) =>
+      app.post(path, handler as any),
+    delete: (path: string, handler: (req: express.Request, res: express.Response) => any) =>
+      app.delete(path, handler as any),
   };
   registrar.get("/tabs", async (req, res) => {
     const profileCtx = getProfileContext(req, ctx);

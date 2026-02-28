@@ -201,7 +201,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const p = params;
     const cfg = loadConfig();
 
-    const resolved = await resolveSessionKeyFromResolveParams({ cfg, p });
+    const resolved = resolveSessionKeyFromResolveParams({ cfg, p });
     if (!resolved.ok) {
       respond(false, undefined, resolved.error);
       return;

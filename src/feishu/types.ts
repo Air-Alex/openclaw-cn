@@ -1,5 +1,3 @@
-import type { ClawdbotConfig } from "../config/config.js";
-
 export type FeishuConfig = {
   appId: string;
   appSecret: string;

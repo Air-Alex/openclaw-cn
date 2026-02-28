@@ -7,7 +7,7 @@ import type express from "express";
 import type { BrowserRouteContext } from "../server-context.js";
 import type { BrowserRouteRegistrar } from "./types.js";
 import { handleRouteError, readBody, requirePwAi, resolveProfileContext } from "./agent.shared.js";
-import { DEFAULT_TRACE_DIR, resolvePathWithinRoot } from "./path-output.js";
+import { resolvePathWithinRoot } from "./path-output.js";
 import { toBoolean, toStringOrEmpty } from "./utils.js";
 
 export function registerBrowserAgentDebugRoutes(
@@ -16,9 +16,12 @@ export function registerBrowserAgentDebugRoutes(
 ) {
   // Adapter to allow Express-typed handlers when underlying might be browser dispatcher
   const registrar = {
-    get: (path: string, handler: (req: express.Request, res: express.Response) => any) => app.get(path, handler as any),
-    post: (path: string, handler: (req: express.Request, res: express.Response) => any) => app.post(path, handler as any),
-    delete: (path: string, handler: (req: express.Request, res: express.Response) => any) => app.delete(path, handler as any),
+    get: (path: string, handler: (req: express.Request, res: express.Response) => any) =>
+      app.get(path, handler as any),
+    post: (path: string, handler: (req: express.Request, res: express.Response) => any) =>
+      app.post(path, handler as any),
+    delete: (path: string, handler: (req: express.Request, res: express.Response) => any) =>
+      app.delete(path, handler as any),
   };
   registrar.get("/console", async (req, res) => {
     // @ts-ignore -- cherry-pick upstream type mismatch

@@ -33,7 +33,6 @@ import {
 } from "./http-common.js";
 
 const DEFAULT_BODY_BYTES = 2 * 1024 * 1024;
-const MEMORY_TOOL_NAMES = new Set(["memory_search", "memory_get"]);
 
 /**
  * Tools denied via HTTP /tools/invoke regardless of session policy.

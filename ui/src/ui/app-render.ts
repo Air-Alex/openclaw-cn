@@ -904,20 +904,32 @@ export function renderApp(state: AppViewState) {
                   if (!configValue) {
                     return;
                   }
-                  const list = (configValue as { agents?: { list?: unknown[] } }).agents?.list;
-                  if (!Array.isArray(list)) {
-                    return;
-                  }
-                  const index = list.findIndex(
+                  const agents = (configValue as { agents?: { list?: unknown[] } }).agents || {};
+                  const list = (agents as { list?: unknown[] }).list || [];
+                  let index = list.findIndex(
                     (entry) =>
                       entry &&
                       typeof entry === "object" &&
                       "id" in entry &&
                       (entry as { id?: string }).id === agentId,
                   );
+
                   if (index < 0) {
+                    if (!modelId) {
+                      return;
+                    }
+                    index = list.length;
+                    updateConfigFormValue(
+                      state as unknown as ConfigState,
+                      ["agents", "list", index],
+                      {
+                        id: agentId,
+                        model: modelId,
+                      },
+                    );
                     return;
                   }
+
                   const basePath = ["agents", "list", index, "model"];
                   if (!modelId) {
                     removeConfigFormValue(state as unknown as ConfigState, basePath);
@@ -940,20 +952,33 @@ export function renderApp(state: AppViewState) {
                   if (!configValue) {
                     return;
                   }
-                  const list = (configValue as { agents?: { list?: unknown[] } }).agents?.list;
-                  if (!Array.isArray(list)) {
-                    return;
-                  }
-                  const index = list.findIndex(
+                  const agents = (configValue as { agents?: { list?: unknown[] } }).agents || {};
+                  const list = (agents as { list?: unknown[] }).list || [];
+                  let index = list.findIndex(
                     (entry) =>
                       entry &&
                       typeof entry === "object" &&
                       "id" in entry &&
                       (entry as { id?: string }).id === agentId,
                   );
+
                   if (index < 0) {
+                    const normalized = fallbacks.map((name) => name.trim()).filter(Boolean);
+                    if (normalized.length === 0) {
+                      return;
+                    }
+                    index = list.length;
+                    updateConfigFormValue(
+                      state as unknown as ConfigState,
+                      ["agents", "list", index],
+                      {
+                        id: agentId,
+                        model: { fallbacks: normalized },
+                      },
+                    );
                     return;
                   }
+
                   const basePath = ["agents", "list", index, "model"];
                   const entry = list[index] as { model?: unknown };
                   const normalized = fallbacks.map((name) => name.trim()).filter(Boolean);

@@ -483,7 +483,7 @@ export const registerTelegramHandlers = ({
       // Model selection callback handler (mdl_prov, mdl_list_*, mdl_sel_*, mdl_back)
       const modelCallback = parseModelCallbackData(data);
       if (modelCallback) {
-        const modelData = await buildModelsProviderData(cfg);
+        const modelData = buildModelsProviderData(cfg);
         // @ts-ignore -- cherry-pick upstream type mismatch
         const { byProvider, providers } = modelData;
 
@@ -537,7 +537,7 @@ export const registerTelegramHandlers = ({
             );
             return;
           }
-          const models = [...modelSet].toSorted();
+          const models = [...modelSet].toSorted((a, b) => a.localeCompare(b));
           const pageSize = getModelsPageSize();
           const totalPages = calculateTotalPages(models.length, pageSize);
           const safePage = Math.max(1, Math.min(page, totalPages));

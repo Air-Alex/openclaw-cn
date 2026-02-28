@@ -53,19 +53,6 @@ function safeFileName(input: string): string {
   return safeDirName(input);
 }
 
-function validatePluginId(pluginId: string): string | null {
-  if (!pluginId) {
-    return "invalid plugin name: missing";
-  }
-  if (pluginId === "." || pluginId === "..") {
-    return "invalid plugin name: reserved path segment";
-  }
-  if (pluginId.includes("/") || pluginId.includes("\\")) {
-    return "invalid plugin name: path separators not allowed";
-  }
-  return null;
-}
-
 function isPathInside(basePath: string, candidatePath: string): boolean {
   const base = path.resolve(basePath);
   const candidate = path.resolve(candidatePath);
