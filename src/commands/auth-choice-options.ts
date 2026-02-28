@@ -27,7 +27,8 @@ export type AuthChoiceGroupId =
   | "siliconflow"
   | "dashscope"
   | "deepseek"
-  | "volcengine";
+  | "volcengine"
+  | "custom";
 
 export type AuthChoiceGroup = {
   value: AuthChoiceGroupId;
@@ -73,6 +74,12 @@ const AUTH_CHOICE_GROUP_DEFS: {
     label: "Moonshot AI (Kimi K2.5)",
     hint: "Kimi K2.5 + Kimi Coding",
     choices: ["moonshot-api-key", "moonshot-api-key-cn", "kimi-code-api-key"],
+  },
+  {
+    value: "custom",
+    label: "自定义模型 (兼容 OpenAI/Anthropic)",
+    hint: "Bring your own model",
+    choices: ["custom-provider-api-key"],
   },
   {
     value: "google",
@@ -281,6 +288,11 @@ export function buildAuthChoiceOptions(params: {
   });
   options.push({ value: "deepseek-api-key", label: "DeepSeek API key" });
   options.push({ value: "volcengine-api-key", label: "火山引擎 (ARK) API key" });
+  options.push({
+    value: "custom-provider-api-key",
+    label: "Custom Provider API key",
+    hint: "OpenAI/Anthropic 兼容接口",
+  });
   if (params.includeSkip) {
     options.push({ value: "skip", label: "Skip for now" });
   }

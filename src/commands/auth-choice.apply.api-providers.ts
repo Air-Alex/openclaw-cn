@@ -15,12 +15,13 @@ import {
   applyAuthProfileConfig,
   applyCloudflareAiGatewayConfig,
   applyCloudflareAiGatewayProviderConfig,
-  applyKimiCodeConfig,
-  applyKimiCodeProviderConfig,
+  applyCustomProviderConfig,
+  applyKimiCodingConfig,
+  applyKimiCodingProviderConfig,
   applyMoonshotConfig,
-  applyMoonshotConfigCn,
+  applyMoonshotCnConfig,
   applyMoonshotProviderConfig,
-  applyMoonshotProviderConfigCn,
+  applyMoonshotCnProviderConfig,
   applyOpencodeZenConfig,
   applyOpencodeZenProviderConfig,
   applyOpenrouterConfig,
@@ -648,8 +649,8 @@ export async function applyAuthChoiceApiProviders(
         config: nextConfig,
         setDefaultModel: params.setDefaultModel,
         defaultModel: MOONSHOT_DEFAULT_MODEL_REF,
-        applyDefaultConfig: applyMoonshotConfigCn,
-        applyProviderConfig: applyMoonshotProviderConfigCn,
+        applyDefaultConfig: applyMoonshotCnConfig,
+        applyProviderConfig: applyMoonshotCnProviderConfig,
         noteAgentModel,
         prompter: params.prompter,
       });
@@ -708,8 +709,8 @@ export async function applyAuthChoiceApiProviders(
         config: nextConfig,
         setDefaultModel: params.setDefaultModel,
         defaultModel: KIMI_CODING_MODEL_REF,
-        applyDefaultConfig: applyKimiCodeConfig,
-        applyProviderConfig: applyKimiCodeProviderConfig,
+        applyDefaultConfig: applyKimiCodingConfig,
+        applyProviderConfig: applyKimiCodingProviderConfig,
         noteDefault: KIMI_CODING_MODEL_REF,
         noteAgentModel,
         prompter: params.prompter,
@@ -1023,6 +1024,87 @@ export async function applyAuthChoiceApiProviders(
       nextConfig = applied.config;
       agentModelOverride = applied.agentModelOverride ?? agentModelOverride;
     }
+    return { config: nextConfig, agentModelOverride };
+  }
+
+  if (authChoice === "custom-provider-api-key") {
+    let nextConfig = params.config;
+
+    const protocol = (await params.prompter.select({
+      message: "Select protocol",
+      options: [
+        { value: "openai-completions", label: "OpenAI Compatible (Default)" },
+        { value: "anthropic-messages", label: "Anthropic Compatible" },
+      ],
+    })) as "openai-completions" | "anthropic-messages";
+
+    const providerIdRaw = await params.prompter.text({
+      message: "Provider ID (e.g. 'my-local-llm')",
+      initialValue: "custom",
+      validate: (value) => {
+        if (!value || String(value).trim().length === 0) return "Provider ID is required";
+        if (!/^[a-z0-9-_]+$/.test(String(value)))
+          return "Provider ID must be lowercase alphanumeric with hyphens/underscores";
+      },
+    });
+    const providerId = String(providerIdRaw);
+
+    const defaultBaseUrl =
+      protocol === "anthropic-messages"
+        ? "https://api.anthropic.com/v1"
+        : "https://api.openai.com/v1";
+    const baseUrlRaw = await params.prompter.text({
+      message: "Base URL",
+      initialValue: defaultBaseUrl,
+      placeholder: "https://api.example.com/v1",
+    });
+    const baseUrl = String(baseUrlRaw).trim();
+
+    const modelIdRaw = await params.prompter.text({
+      message: "Model ID (e.g. 'llama-3-8b')",
+      validate: (value) =>
+        value && String(value).trim().length > 0 ? undefined : "Model ID is required",
+    });
+    const modelId = String(modelIdRaw);
+
+    const apiKeyRaw = await params.prompter.text({
+      message: "API Key",
+    });
+    const apiKey = normalizeApiKeyInput(String(apiKeyRaw));
+
+    nextConfig = applyCustomProviderConfig(nextConfig, {
+      providerId,
+      protocol,
+      baseUrl,
+      modelId,
+      apiKey,
+    });
+
+    const modelRef = `${providerId}/${modelId}`;
+
+    if (params.setDefaultModel) {
+      const currentModel = nextConfig.agents?.defaults?.model;
+      const newModelConfig =
+        currentModel && typeof currentModel === "object"
+          ? { ...currentModel, primary: modelRef }
+          : { primary: modelRef };
+
+      nextConfig = {
+        ...nextConfig,
+        agents: {
+          ...nextConfig.agents,
+          defaults: {
+            ...nextConfig.agents?.defaults,
+            model: newModelConfig,
+          },
+        },
+      };
+      await params.prompter.note(`Default model set to ${modelRef}`, "Model configured");
+    } else {
+      agentModelOverride = modelRef;
+      await noteAgentModel(modelRef);
+    }
+
     return { config: nextConfig, agentModelOverride };
   }
 

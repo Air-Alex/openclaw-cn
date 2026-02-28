@@ -48,6 +48,8 @@ export type AuthChoice =
   | "minimax-api-m25-highspeed"
   | "minimax-api-m21-highspeed"
   | "minimax-api-m2"
+  // 新增：自定义模型（OpenAI/Anthropic兼容）
+  | "custom-provider-api-key"
   | "minimax-portal"
   | "opencode-zen"
   | "github-copilot"

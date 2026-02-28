@@ -11,11 +11,11 @@ import { applyGoogleGeminiModelDefault } from "../../google-gemini-model-default
 import {
   applyAuthProfileConfig,
   applyCloudflareAiGatewayConfig,
-  applyKimiCodeConfig,
+  applyKimiCodingConfig,
   applyMinimaxApiConfig,
   applyMinimaxConfig,
   applyMoonshotConfig,
-  applyMoonshotConfigCn,
+  applyMoonshotCnConfig,
   applyOpencodeZenConfig,
   applyOpenrouterConfig,
   applySyntheticConfig,
@@ -389,7 +389,7 @@ export async function applyNonInteractiveAuthChoice(params: {
       provider: "moonshot",
       mode: "api_key",
     });
-    return applyMoonshotConfigCn(nextConfig);
+    return applyMoonshotCnConfig(nextConfig);
   }
 
   if (authChoice === "kimi-code-api-key") {
@@ -412,7 +412,7 @@ export async function applyNonInteractiveAuthChoice(params: {
       provider: "kimi-coding",
       mode: "api_key",
     });
-    return applyKimiCodeConfig(nextConfig);
+    return applyKimiCodingConfig(nextConfig);
   }
 
   if (authChoice === "synthetic-api-key") {

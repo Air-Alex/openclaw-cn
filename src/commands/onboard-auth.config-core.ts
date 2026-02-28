@@ -4,16 +4,18 @@ import {
   resolveCloudflareAiGatewayBaseUrl,
 } from "../agents/cloudflare-ai-gateway.js";
 import { buildVolcengineProvider } from "../agents/models-config.providers.js";
-import { buildXiaomiProvider, XIAOMI_DEFAULT_MODEL_ID } from "../agents/models-config.providers.js";
+import { buildXiaomiProvider } from "../agents/models-config.providers.js";
 import {
   buildSyntheticModelDefinition,
   SYNTHETIC_BASE_URL,
+  SYNTHETIC_DEFAULT_MODEL_ID,
   SYNTHETIC_DEFAULT_MODEL_REF,
   SYNTHETIC_MODEL_CATALOG,
 } from "../agents/synthetic-models.js";
 import {
   buildVeniceModelDefinition,
   VENICE_BASE_URL,
+  VENICE_DEFAULT_MODEL_ID,
   VENICE_DEFAULT_MODEL_REF,
   VENICE_MODEL_CATALOG,
 } from "../agents/venice-models.js";
@@ -29,7 +31,6 @@ import {
   KIMI_CODING_MODEL_REF,
   MOONSHOT_BASE_URL,
   MOONSHOT_CN_BASE_URL,
-  MOONSHOT_DEFAULT_MODEL_ID,
   MOONSHOT_DEFAULT_MODEL_REF,
 } from "./onboard-auth.models.js";
 import {
@@ -50,6 +51,37 @@ import {
   DEEPSEEK_BASE_URL,
   DEEPSEEK_DEFAULT_MODEL_REF,
 } from "./onboard-auth.models.js";
+
+export function applyAuthProfileConfig(
+  cfg: ClawdbotConfig,
+  params: {
+    profileId: string;
+    provider: string;
+    mode: "api_key" | "oauth" | "token";
+  },
+): ClawdbotConfig {
+  const { profileId, provider, mode } = params;
+
+  const auth = cfg.auth || {};
+  const profiles = { ...auth.profiles };
+  profiles[profileId] = { provider, mode };
+
+  const order = { ...auth.order };
+  const existingOrder = order[provider] || [];
+
+  if (!existingOrder.includes(profileId)) {
+    order[provider] = [profileId, ...existingOrder];
+  }
+
+  return {
+    ...cfg,
+    auth: {
+      ...auth,
+      profiles,
+      order,
+    },
+  };
+}
 
 export function applyZaiConfig(cfg: ClawdbotConfig): ClawdbotConfig {
   const models = { ...cfg.agents?.defaults?.models };
@@ -98,6 +130,28 @@ export function applyOpenrouterProviderConfig(cfg: ClawdbotConfig): ClawdbotConf
   };
 }
 
+export function applyOpenrouterConfig(cfg: ClawdbotConfig): ClawdbotConfig {
+  const next = applyOpenrouterProviderConfig(cfg);
+  const existingModel = next.agents?.defaults?.model;
+  return {
+    ...next,
+    agents: {
+      ...next.agents,
+      defaults: {
+        ...next.agents?.defaults,
+        model: {
+          ...(existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
+            ? {
+                fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
+              }
+            : undefined),
+          primary: OPENROUTER_DEFAULT_MODEL_REF,
+        },
+      },
+    },
+  };
+}
+
 export function applyVercelAiGatewayProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
   const models = { ...cfg.agents?.defaults?.models };
   models[VERCEL_AI_GATEWAY_DEFAULT_MODEL_REF] = {
@@ -113,73 +167,6 @@ export function applyVercelAiGatewayProviderConfig(cfg: ClawdbotConfig): Clawdbo
         ...cfg.agents?.defaults,
         models,
       },
-    },
-  };
-}
-
-export function applyCloudflareAiGatewayProviderConfig(
-  cfg: ClawdbotConfig,
-  params?: { accountId?: string; gatewayId?: string },
-): ClawdbotConfig {
-  const models = { ...cfg.agents?.defaults?.models };
-  models[CLOUDFLARE_AI_GATEWAY_DEFAULT_MODEL_REF] = {
-    ...models[CLOUDFLARE_AI_GATEWAY_DEFAULT_MODEL_REF],
-    alias: models[CLOUDFLARE_AI_GATEWAY_DEFAULT_MODEL_REF]?.alias ?? "Cloudflare AI Gateway",
-  };
-
-  const providers = { ...cfg.models?.providers };
-  const existingProvider = providers["cloudflare-ai-gateway"];
-  const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
-  const defaultModel = buildCloudflareAiGatewayModelDefinition();
-  const hasDefaultModel = existingModels.some((model) => model.id === defaultModel.id);
-  const mergedModels = hasDefaultModel ? existingModels : [...existingModels, defaultModel];
-  const baseUrl =
-    params?.accountId && params?.gatewayId
-      ? resolveCloudflareAiGatewayBaseUrl({
-          accountId: params.accountId,
-          gatewayId: params.gatewayId,
-        })
-      : existingProvider?.baseUrl;
-
-  if (!baseUrl) {
-    return {
-      ...cfg,
-      agents: {
-        ...cfg.agents,
-        defaults: {
-          ...cfg.agents?.defaults,
-          models,
-        },
-      },
-    };
-  }
-
-  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as Record<
-    string,
-    unknown
-  > as { apiKey?: string };
-  const resolvedApiKey = typeof existingApiKey === "string" ? existingApiKey : undefined;
-  const normalizedApiKey = resolvedApiKey?.trim();
-  providers["cloudflare-ai-gateway"] = {
-    ...existingProviderRest,
-    baseUrl,
-    api: "anthropic-messages",
-    ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
-    models: mergedModels.length > 0 ? mergedModels : [defaultModel],
-  };
-
-  return {
-    ...cfg,
-    agents: {
-      ...cfg.agents,
-      defaults: {
-        ...cfg.agents?.defaults,
-        models,
-      },
-    },
-    models: {
-      mode: cfg.models?.mode ?? "merge",
-      providers,
     },
   };
 }
@@ -206,11 +193,61 @@ export function applyVercelAiGatewayConfig(cfg: ClawdbotConfig): ClawdbotConfig 
   };
 }
 
+export function applyCloudflareAiGatewayProviderConfig(
+  cfg: ClawdbotConfig,
+  opts?: { accountId?: string; gatewayId?: string },
+): ClawdbotConfig {
+  const models = { ...cfg.agents?.defaults?.models };
+  const modelsRef = CLOUDFLARE_AI_GATEWAY_DEFAULT_MODEL_REF;
+  models[modelsRef] = {
+    ...models[modelsRef],
+    alias: models[modelsRef]?.alias ?? "Cloudflare AI Gateway",
+  };
+
+  const providers = { ...cfg.models?.providers };
+  const existingProvider = providers["cloudflare-ai-gateway"];
+  const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
+  const defaultModel = buildCloudflareAiGatewayModelDefinition();
+  const hasDefaultModel = existingModels.some((model) => model.id === defaultModel.id);
+  const mergedModels = hasDefaultModel ? existingModels : [...existingModels, defaultModel];
+  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as {
+    apiKey?: string;
+  };
+  const resolvedApiKey = typeof existingApiKey === "string" ? existingApiKey : undefined;
+  const normalizedApiKey = resolvedApiKey?.trim();
+  const baseUrl = resolveCloudflareAiGatewayBaseUrl({
+    accountId: opts?.accountId ?? "",
+    gatewayId: opts?.gatewayId ?? "",
+  });
+
+  providers["cloudflare-ai-gateway"] = {
+    ...existingProviderRest,
+    baseUrl: baseUrl || existingProvider?.baseUrl || "",
+    ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
+    models: mergedModels.length > 0 ? mergedModels : [defaultModel],
+  };
+
+  return {
+    ...cfg,
+    agents: {
+      ...cfg.agents,
+      defaults: {
+        ...cfg.agents?.defaults,
+        models,
+      },
+    },
+    models: {
+      mode: cfg.models?.mode ?? "merge",
+      providers,
+    },
+  };
+}
+
 export function applyCloudflareAiGatewayConfig(
   cfg: ClawdbotConfig,
-  params?: { accountId?: string; gatewayId?: string },
+  opts?: { accountId?: string; gatewayId?: string },
 ): ClawdbotConfig {
-  const next = applyCloudflareAiGatewayProviderConfig(cfg, params);
+  const next = applyCloudflareAiGatewayProviderConfig(cfg, opts);
   const existingModel = next.agents?.defaults?.model;
   return {
     ...next,
@@ -231,61 +268,27 @@ export function applyCloudflareAiGatewayConfig(
   };
 }
 
-export function applyOpenrouterConfig(cfg: ClawdbotConfig): ClawdbotConfig {
-  const next = applyOpenrouterProviderConfig(cfg);
-  const existingModel = next.agents?.defaults?.model;
-  return {
-    ...next,
-    agents: {
-      ...next.agents,
-      defaults: {
-        ...next.agents?.defaults,
-        model: {
-          ...(existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
-            ? {
-                fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
-              }
-            : undefined),
-          primary: OPENROUTER_DEFAULT_MODEL_REF,
-        },
-      },
-    },
-  };
-}
-
 export function applyMoonshotProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
-  return applyMoonshotProviderConfigWithBaseUrl(cfg, MOONSHOT_BASE_URL);
-}
-
-export function applyMoonshotProviderConfigCn(cfg: ClawdbotConfig): ClawdbotConfig {
-  return applyMoonshotProviderConfigWithBaseUrl(cfg, MOONSHOT_CN_BASE_URL);
-}
-
-function applyMoonshotProviderConfigWithBaseUrl(
-  cfg: ClawdbotConfig,
-  baseUrl: string,
-): ClawdbotConfig {
   const models = { ...cfg.agents?.defaults?.models };
   models[MOONSHOT_DEFAULT_MODEL_REF] = {
     ...models[MOONSHOT_DEFAULT_MODEL_REF],
-    alias: models[MOONSHOT_DEFAULT_MODEL_REF]?.alias ?? "Kimi",
+    alias: models[MOONSHOT_DEFAULT_MODEL_REF]?.alias ?? "Moonshot AI",
   };
 
   const providers = { ...cfg.models?.providers };
   const existingProvider = providers.moonshot;
   const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
   const defaultModel = buildMoonshotModelDefinition();
-  const hasDefaultModel = existingModels.some((model) => model.id === MOONSHOT_DEFAULT_MODEL_ID);
+  const hasDefaultModel = existingModels.some((model) => model.id === defaultModel.id);
   const mergedModels = hasDefaultModel ? existingModels : [...existingModels, defaultModel];
-  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as Record<
-    string,
-    unknown
-  > as { apiKey?: string };
+  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as {
+    apiKey?: string;
+  };
   const resolvedApiKey = typeof existingApiKey === "string" ? existingApiKey : undefined;
   const normalizedApiKey = resolvedApiKey?.trim();
   providers.moonshot = {
     ...existingProviderRest,
-    baseUrl,
+    baseUrl: MOONSHOT_BASE_URL,
     api: "openai-completions",
     ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
     models: mergedModels.length > 0 ? mergedModels : [defaultModel],
@@ -329,8 +332,50 @@ export function applyMoonshotConfig(cfg: ClawdbotConfig): ClawdbotConfig {
   };
 }
 
-export function applyMoonshotConfigCn(cfg: ClawdbotConfig): ClawdbotConfig {
-  const next = applyMoonshotProviderConfigCn(cfg);
+export function applyMoonshotCnProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
+  const models = { ...cfg.agents?.defaults?.models };
+  models[MOONSHOT_DEFAULT_MODEL_REF] = {
+    ...models[MOONSHOT_DEFAULT_MODEL_REF],
+    alias: models[MOONSHOT_DEFAULT_MODEL_REF]?.alias ?? "Moonshot AI (CN)",
+  };
+
+  const providers = { ...cfg.models?.providers };
+  const existingProvider = providers.moonshot;
+  const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
+  const defaultModel = buildMoonshotModelDefinition();
+  const hasDefaultModel = existingModels.some((model) => model.id === defaultModel.id);
+  const mergedModels = hasDefaultModel ? existingModels : [...existingModels, defaultModel];
+  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as {
+    apiKey?: string;
+  };
+  const resolvedApiKey = typeof existingApiKey === "string" ? existingApiKey : undefined;
+  const normalizedApiKey = resolvedApiKey?.trim();
+  providers.moonshot = {
+    ...existingProviderRest,
+    baseUrl: MOONSHOT_CN_BASE_URL,
+    api: "openai-completions",
+    ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
+    models: mergedModels.length > 0 ? mergedModels : [defaultModel],
+  };
+
+  return {
+    ...cfg,
+    agents: {
+      ...cfg.agents,
+      defaults: {
+        ...cfg.agents?.defaults,
+        models,
+      },
+    },
+    models: {
+      mode: cfg.models?.mode ?? "merge",
+      providers,
+    },
+  };
+}
+
+export function applyMoonshotCnConfig(cfg: ClawdbotConfig): ClawdbotConfig {
+  const next = applyMoonshotCnProviderConfig(cfg);
   const existingModel = next.agents?.defaults?.model;
   return {
     ...next,
@@ -351,11 +396,11 @@ export function applyMoonshotConfigCn(cfg: ClawdbotConfig): ClawdbotConfig {
   };
 }
 
-export function applyKimiCodeProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
+export function applyKimiCodingProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
   const models = { ...cfg.agents?.defaults?.models };
   models[KIMI_CODING_MODEL_REF] = {
     ...models[KIMI_CODING_MODEL_REF],
-    alias: models[KIMI_CODING_MODEL_REF]?.alias ?? "Kimi K2.5",
+    alias: models[KIMI_CODING_MODEL_REF]?.alias ?? "Kimi Coding",
   };
 
   return {
@@ -370,8 +415,8 @@ export function applyKimiCodeProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig
   };
 }
 
-export function applyKimiCodeConfig(cfg: ClawdbotConfig): ClawdbotConfig {
-  const next = applyKimiCodeProviderConfig(cfg);
+export function applyKimiCodingConfig(cfg: ClawdbotConfig): ClawdbotConfig {
+  const next = applyKimiCodingProviderConfig(cfg);
   const existingModel = next.agents?.defaults?.model;
   return {
     ...next,
@@ -392,7 +437,282 @@ export function applyKimiCodeConfig(cfg: ClawdbotConfig): ClawdbotConfig {
   };
 }
 
-// 新增：硅基流动（SiliconFlow）提供商配置
+export function applySyntheticProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
+  const models = { ...cfg.agents?.defaults?.models };
+  models[SYNTHETIC_DEFAULT_MODEL_REF] = {
+    ...models[SYNTHETIC_DEFAULT_MODEL_REF],
+    alias: models[SYNTHETIC_DEFAULT_MODEL_REF]?.alias ?? "Synthetic",
+  };
+
+  const providers = { ...cfg.models?.providers };
+  const existingProvider = providers.synthetic;
+  const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
+  const defaultModel = buildSyntheticModelDefinition(
+    SYNTHETIC_MODEL_CATALOG.find((m) => m.id === SYNTHETIC_DEFAULT_MODEL_ID)!,
+  );
+  const hasDefaultModel = existingModels.some((model) => model.id === defaultModel.id);
+  const mergedModels = hasDefaultModel ? existingModels : [...existingModels, defaultModel];
+  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as {
+    apiKey?: string;
+  };
+  const resolvedApiKey = typeof existingApiKey === "string" ? existingApiKey : undefined;
+  const normalizedApiKey = resolvedApiKey?.trim();
+  providers.synthetic = {
+    ...existingProviderRest,
+    baseUrl: SYNTHETIC_BASE_URL,
+    api: "openai-completions",
+    ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
+    models: mergedModels.length > 0 ? mergedModels : [defaultModel],
+  };
+
+  return {
+    ...cfg,
+    agents: {
+      ...cfg.agents,
+      defaults: {
+        ...cfg.agents?.defaults,
+        models,
+      },
+    },
+    models: {
+      mode: cfg.models?.mode ?? "merge",
+      providers,
+    },
+  };
+}
+
+export function applySyntheticConfig(cfg: ClawdbotConfig): ClawdbotConfig {
+  const next = applySyntheticProviderConfig(cfg);
+  const existingModel = next.agents?.defaults?.model;
+  return {
+    ...next,
+    agents: {
+      ...next.agents,
+      defaults: {
+        ...next.agents?.defaults,
+        model: {
+          ...(existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
+            ? {
+                fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
+              }
+            : undefined),
+          primary: SYNTHETIC_DEFAULT_MODEL_REF,
+        },
+      },
+    },
+  };
+}
+
+export function applyVeniceProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
+  const models = { ...cfg.agents?.defaults?.models };
+  models[VENICE_DEFAULT_MODEL_REF] = {
+    ...models[VENICE_DEFAULT_MODEL_REF],
+    alias: models[VENICE_DEFAULT_MODEL_REF]?.alias ?? "Venice",
+  };
+
+  const providers = { ...cfg.models?.providers };
+  const existingProvider = providers.venice;
+  const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
+  const defaultModel = buildVeniceModelDefinition(
+    VENICE_MODEL_CATALOG.find((m) => m.id === VENICE_DEFAULT_MODEL_ID)!,
+  );
+  const hasDefaultModel = existingModels.some((model) => model.id === defaultModel.id);
+  const mergedModels = hasDefaultModel ? existingModels : [...existingModels, defaultModel];
+  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as {
+    apiKey?: string;
+  };
+  const resolvedApiKey = typeof existingApiKey === "string" ? existingApiKey : undefined;
+  const normalizedApiKey = resolvedApiKey?.trim();
+  providers.venice = {
+    ...existingProviderRest,
+    baseUrl: VENICE_BASE_URL,
+    api: "openai-completions",
+    ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
+    models: mergedModels.length > 0 ? mergedModels : [defaultModel],
+  };
+
+  return {
+    ...cfg,
+    agents: {
+      ...cfg.agents,
+      defaults: {
+        ...cfg.agents?.defaults,
+        models,
+      },
+    },
+    models: {
+      mode: cfg.models?.mode ?? "merge",
+      providers,
+    },
+  };
+}
+
+export function applyVeniceConfig(cfg: ClawdbotConfig): ClawdbotConfig {
+  const next = applyVeniceProviderConfig(cfg);
+  const existingModel = next.agents?.defaults?.model;
+  return {
+    ...next,
+    agents: {
+      ...next.agents,
+      defaults: {
+        ...next.agents?.defaults,
+        model: {
+          ...(existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
+            ? {
+                fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
+              }
+            : undefined),
+          primary: VENICE_DEFAULT_MODEL_REF,
+        },
+      },
+    },
+  };
+}
+
+export function applyXiaomiProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
+  const models = { ...cfg.agents?.defaults?.models };
+  models[XIAOMI_DEFAULT_MODEL_REF] = {
+    ...models[XIAOMI_DEFAULT_MODEL_REF],
+    alias: models[XIAOMI_DEFAULT_MODEL_REF]?.alias ?? "Xiaomi",
+  };
+
+  const providers = { ...cfg.models?.providers };
+  const existingProvider = providers.xiaomi;
+  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as {
+    apiKey?: string;
+  };
+  const resolvedApiKey = typeof existingApiKey === "string" ? existingApiKey : undefined;
+  const normalizedApiKey = resolvedApiKey?.trim();
+  const provider = buildXiaomiProvider();
+  providers.xiaomi = {
+    ...existingProviderRest,
+    ...provider,
+    ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
+  };
+
+  return {
+    ...cfg,
+    agents: {
+      ...cfg.agents,
+      defaults: {
+        ...cfg.agents?.defaults,
+        models,
+      },
+    },
+    models: {
+      mode: cfg.models?.mode ?? "merge",
+      providers,
+    },
+  };
+}
+
+export function applyXiaomiConfig(cfg: ClawdbotConfig): ClawdbotConfig {
+  const next = applyXiaomiProviderConfig(cfg);
+  const existingModel = next.agents?.defaults?.model;
+  return {
+    ...next,
+    agents: {
+      ...next.agents,
+      defaults: {
+        ...next.agents?.defaults,
+        model: {
+          ...(existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
+            ? {
+                fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
+              }
+            : undefined),
+          primary: XIAOMI_DEFAULT_MODEL_REF,
+        },
+      },
+    },
+  };
+}
+
+export function applyVolcengineProviderConfig(
+  cfg: ClawdbotConfig,
+  modelId?: string,
+): ClawdbotConfig {
+  const providers = { ...cfg.models?.providers };
+  const existingProvider = providers.volcengine;
+  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as {
+    apiKey?: string;
+  };
+  const resolvedApiKey = typeof existingApiKey === "string" ? existingApiKey : undefined;
+  const normalizedApiKey = resolvedApiKey?.trim();
+
+  const provider = buildVolcengineProvider();
+
+  // Start with existing models or empty array
+  const models = Array.isArray(existingProvider?.models)
+    ? [...existingProvider.models]
+    : [...(provider.models || [])];
+
+  if (modelId && !models.some((m) => m.id === modelId)) {
+    models.push({
+      id: modelId,
+      name: modelId,
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128000,
+      maxTokens: 4096,
+    });
+  }
+
+  providers.volcengine = {
+    ...existingProviderRest,
+    ...provider,
+    ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
+    models,
+  };
+
+  return {
+    ...cfg,
+    models: {
+      mode: cfg.models?.mode ?? "merge",
+      providers,
+    },
+  };
+}
+
+export function applyVolcengineConfig(cfg: ClawdbotConfig, modelId?: string): ClawdbotConfig {
+  const next = applyVolcengineProviderConfig(cfg, modelId);
+
+  if (modelId) {
+    const targetModelRef = `volcengine/${modelId}`;
+    const existingModel = next.agents?.defaults?.model;
+
+    // Also add alias for the model
+    const models = { ...next.agents?.defaults?.models };
+    models[targetModelRef] = {
+      ...models[targetModelRef],
+      alias: models[targetModelRef]?.alias ?? modelId,
+    };
+
+    return {
+      ...next,
+      agents: {
+        ...next.agents,
+        defaults: {
+          ...next.agents?.defaults,
+          models,
+          model: {
+            ...(existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
+              ? {
+                  fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
+                }
+              : undefined),
+            primary: targetModelRef,
+          },
+        },
+      },
+    };
+  }
+
+  return next;
+}
+
+// 新增：硅基流动提供商配置
 export function applySiliconflowProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
   const models = { ...cfg.agents?.defaults?.models };
   models[SILICONFLOW_DEFAULT_MODEL_REF] = {
@@ -444,19 +764,79 @@ export function applySiliconflowConfig(cfg: ClawdbotConfig): ClawdbotConfig {
       ...next.agents,
       defaults: {
         ...next.agents?.defaults,
-        model:
-          existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
+        model: {
+          ...(existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
             ? {
                 fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
-                primary: SILICONFLOW_DEFAULT_MODEL_REF,
               }
-            : {
-                primary: SILICONFLOW_DEFAULT_MODEL_REF,
-                fallbacks: [
-                  "siliconflow/Qwen/Qwen2.5-14B-Instruct",
-                  "siliconflow/Qwen/Qwen2.5-7B-Instruct",
-                ],
-              },
+            : undefined),
+          primary: SILICONFLOW_DEFAULT_MODEL_REF,
+        },
+      },
+    },
+  };
+}
+
+// 新增：DeepSeek提供商配置
+export function applyDeepseekProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
+  const models = { ...cfg.agents?.defaults?.models };
+  models[DEEPSEEK_DEFAULT_MODEL_REF] = {
+    ...models[DEEPSEEK_DEFAULT_MODEL_REF],
+    alias: models[DEEPSEEK_DEFAULT_MODEL_REF]?.alias ?? "DeepSeek",
+  };
+
+  const providers = { ...cfg.models?.providers };
+  const existingProvider = providers.deepseek;
+  const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
+  const defaultModel = buildDeepseekModelDefinition();
+  const hasDefaultModel = existingModels.some((model) => model.id === defaultModel.id);
+  const mergedModels = hasDefaultModel ? existingModels : [...existingModels, defaultModel];
+  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as {
+    apiKey?: string;
+  };
+  const resolvedApiKey = typeof existingApiKey === "string" ? existingApiKey : undefined;
+  const normalizedApiKey = resolvedApiKey?.trim();
+  providers.deepseek = {
+    ...existingProviderRest,
+    baseUrl: DEEPSEEK_BASE_URL,
+    api: "openai-completions",
+    ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
+    models: mergedModels.length > 0 ? mergedModels : [defaultModel],
+  };
+
+  return {
+    ...cfg,
+    agents: {
+      ...cfg.agents,
+      defaults: {
+        ...cfg.agents?.defaults,
+        models,
+      },
+    },
+    models: {
+      mode: cfg.models?.mode ?? "merge",
+      providers,
+    },
+  };
+}
+
+export function applyDeepseekConfig(cfg: ClawdbotConfig): ClawdbotConfig {
+  const next = applyDeepseekProviderConfig(cfg);
+  const existingModel = next.agents?.defaults?.model;
+  return {
+    ...next,
+    agents: {
+      ...next.agents,
+      defaults: {
+        ...next.agents?.defaults,
+        model: {
+          ...(existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
+            ? {
+                fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
+              }
+            : undefined),
+          primary: DEEPSEEK_DEFAULT_MODEL_REF,
+        },
       },
     },
   };
@@ -467,7 +847,7 @@ export function applyDashscopeProviderConfig(cfg: ClawdbotConfig): ClawdbotConfi
   const models = { ...cfg.agents?.defaults?.models };
   models[DASHSCOPE_DEFAULT_MODEL_REF] = {
     ...models[DASHSCOPE_DEFAULT_MODEL_REF],
-    alias: models[DASHSCOPE_DEFAULT_MODEL_REF]?.alias ?? "Qwen Plus",
+    alias: models[DASHSCOPE_DEFAULT_MODEL_REF]?.alias ?? "DashScope",
   };
 
   const providers = { ...cfg.models?.providers };
@@ -604,393 +984,62 @@ export function applyDashscopeCodingPlanConfig(
   };
 }
 
-// 新增：DeepSeek提供商配置
-export function applyDeepseekProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
-  const models = { ...cfg.agents?.defaults?.models };
-  models[DEEPSEEK_DEFAULT_MODEL_REF] = {
-    ...models[DEEPSEEK_DEFAULT_MODEL_REF],
-    alias: models[DEEPSEEK_DEFAULT_MODEL_REF]?.alias ?? "DeepSeek Chat",
-  };
-
-  const providers = { ...cfg.models?.providers };
-  const existingProvider = providers.deepseek;
-  const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
-  const defaultModel = buildDeepseekModelDefinition();
-  const hasDefaultModel = existingModels.some((model) => model.id === defaultModel.id);
-  const mergedModels = hasDefaultModel ? existingModels : [...existingModels, defaultModel];
-  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as {
-    apiKey?: string;
-  };
-  const resolvedApiKey = typeof existingApiKey === "string" ? existingApiKey : undefined;
-  const normalizedApiKey = resolvedApiKey?.trim();
-  providers.deepseek = {
-    ...existingProviderRest,
-    baseUrl: DEEPSEEK_BASE_URL,
-    api: "openai-completions",
-    ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
-    models: mergedModels.length > 0 ? mergedModels : [defaultModel],
-  };
-
-  return {
-    ...cfg,
-    agents: {
-      ...cfg.agents,
-      defaults: {
-        ...cfg.agents?.defaults,
-        models,
-      },
-    },
-    models: {
-      mode: cfg.models?.mode ?? "merge",
-      providers,
-    },
-  };
-}
-
-export function applyDeepseekConfig(cfg: ClawdbotConfig): ClawdbotConfig {
-  const next = applyDeepseekProviderConfig(cfg);
-  const existingModel = next.agents?.defaults?.model;
-  return {
-    ...next,
-    agents: {
-      ...next.agents,
-      defaults: {
-        ...next.agents?.defaults,
-        model: {
-          ...(existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
-            ? {
-                fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
-              }
-            : undefined),
-          primary: DEEPSEEK_DEFAULT_MODEL_REF,
-        },
-      },
-    },
-  };
-}
-export function applySyntheticProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
-  const models = { ...cfg.agents?.defaults?.models };
-  models[SYNTHETIC_DEFAULT_MODEL_REF] = {
-    ...models[SYNTHETIC_DEFAULT_MODEL_REF],
-    alias: models[SYNTHETIC_DEFAULT_MODEL_REF]?.alias ?? "MiniMax M2.1",
-  };
-
-  const providers = { ...cfg.models?.providers };
-  const existingProvider = providers.synthetic;
-  const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
-  const syntheticModels = SYNTHETIC_MODEL_CATALOG.map(buildSyntheticModelDefinition);
-  const mergedModels = [
-    ...existingModels,
-    ...syntheticModels.filter(
-      (model) => !existingModels.some((existing) => existing.id === model.id),
-    ),
-  ];
-  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as Record<
-    string,
-    unknown
-  > as { apiKey?: string };
-  const resolvedApiKey = typeof existingApiKey === "string" ? existingApiKey : undefined;
-  const normalizedApiKey = resolvedApiKey?.trim();
-  providers.synthetic = {
-    ...existingProviderRest,
-    baseUrl: SYNTHETIC_BASE_URL,
-    api: "anthropic-messages",
-    ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
-    models: mergedModels.length > 0 ? mergedModels : syntheticModels,
-  };
-
-  return {
-    ...cfg,
-    agents: {
-      ...cfg.agents,
-      defaults: {
-        ...cfg.agents?.defaults,
-        models,
-      },
-    },
-    models: {
-      mode: cfg.models?.mode ?? "merge",
-      providers,
-    },
-  };
-}
-
-export function applySyntheticConfig(cfg: ClawdbotConfig): ClawdbotConfig {
-  const next = applySyntheticProviderConfig(cfg);
-  const existingModel = next.agents?.defaults?.model;
-  return {
-    ...next,
-    agents: {
-      ...next.agents,
-      defaults: {
-        ...next.agents?.defaults,
-        model: {
-          ...(existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
-            ? {
-                fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
-              }
-            : undefined),
-          primary: SYNTHETIC_DEFAULT_MODEL_REF,
-        },
-      },
-    },
-  };
-}
-
-export function applyXiaomiProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
-  const models = { ...cfg.agents?.defaults?.models };
-  models[XIAOMI_DEFAULT_MODEL_REF] = {
-    ...models[XIAOMI_DEFAULT_MODEL_REF],
-    alias: models[XIAOMI_DEFAULT_MODEL_REF]?.alias ?? "Xiaomi",
-  };
-
-  const providers = { ...cfg.models?.providers };
-  const existingProvider = providers.xiaomi;
-  const defaultProvider = buildXiaomiProvider();
-  const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
-  const defaultModels = defaultProvider.models ?? [];
-  const hasDefaultModel = existingModels.some((model) => model.id === XIAOMI_DEFAULT_MODEL_ID);
-  const mergedModels =
-    existingModels.length > 0
-      ? hasDefaultModel
-        ? existingModels
-        : [...existingModels, ...defaultModels]
-      : defaultModels;
-  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as Record<
-    string,
-    unknown
-  > as { apiKey?: string };
-  const resolvedApiKey = typeof existingApiKey === "string" ? existingApiKey : undefined;
-  const normalizedApiKey = resolvedApiKey?.trim();
-  providers.xiaomi = {
-    ...existingProviderRest,
-    baseUrl: defaultProvider.baseUrl,
-    api: defaultProvider.api,
-    ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
-    models: mergedModels.length > 0 ? mergedModels : defaultProvider.models,
-  };
-
-  return {
-    ...cfg,
-    agents: {
-      ...cfg.agents,
-      defaults: {
-        ...cfg.agents?.defaults,
-        models,
-      },
-    },
-    models: {
-      mode: cfg.models?.mode ?? "merge",
-      providers,
-    },
-  };
-}
-
-export function applyXiaomiConfig(cfg: ClawdbotConfig): ClawdbotConfig {
-  const next = applyXiaomiProviderConfig(cfg);
-  const existingModel = next.agents?.defaults?.model;
-  return {
-    ...next,
-    agents: {
-      ...next.agents,
-      defaults: {
-        ...next.agents?.defaults,
-        model: {
-          ...(existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
-            ? {
-                fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
-              }
-            : undefined),
-          primary: XIAOMI_DEFAULT_MODEL_REF,
-        },
-      },
-    },
-  };
-}
-
-/**
- * Apply Venice provider configuration without changing the default model.
- * Registers Venice models and sets up the provider, but preserves existing model selection.
- */
-export function applyVeniceProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
-  const models = { ...cfg.agents?.defaults?.models };
-  models[VENICE_DEFAULT_MODEL_REF] = {
-    ...models[VENICE_DEFAULT_MODEL_REF],
-    alias: models[VENICE_DEFAULT_MODEL_REF]?.alias ?? "Llama 3.3 70B",
-  };
-
-  const providers = { ...cfg.models?.providers };
-  const existingProvider = providers.venice;
-  const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
-  const veniceModels = VENICE_MODEL_CATALOG.map(buildVeniceModelDefinition);
-  const mergedModels = [
-    ...existingModels,
-    ...veniceModels.filter((model) => !existingModels.some((existing) => existing.id === model.id)),
-  ];
-  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as Record<
-    string,
-    unknown
-  > as { apiKey?: string };
-  const resolvedApiKey = typeof existingApiKey === "string" ? existingApiKey : undefined;
-  const normalizedApiKey = resolvedApiKey?.trim();
-  providers.venice = {
-    ...existingProviderRest,
-    baseUrl: VENICE_BASE_URL,
-    api: "openai-completions",
-    ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
-    models: mergedModels.length > 0 ? mergedModels : veniceModels,
-  };
-
-  return {
-    ...cfg,
-    agents: {
-      ...cfg.agents,
-      defaults: {
-        ...cfg.agents?.defaults,
-        models,
-      },
-    },
-    models: {
-      mode: cfg.models?.mode ?? "merge",
-      providers,
-    },
-  };
-}
-
-/**
- * Apply Venice provider configuration AND set Venice as the default model.
- * Use this when Venice is the primary provider choice during onboarding.
- */
-export function applyVeniceConfig(cfg: ClawdbotConfig): ClawdbotConfig {
-  const next = applyVeniceProviderConfig(cfg);
-  const existingModel = next.agents?.defaults?.model;
-  return {
-    ...next,
-    agents: {
-      ...next.agents,
-      defaults: {
-        ...next.agents?.defaults,
-        model: {
-          ...(existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
-            ? {
-                fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
-              }
-            : undefined),
-          primary: VENICE_DEFAULT_MODEL_REF,
-        },
-      },
-    },
-  };
-}
-
-export function applyAuthProfileConfig(
+// 新增：自定义模型提供商配置
+export function applyCustomProviderConfig(
   cfg: ClawdbotConfig,
   params: {
-    profileId: string;
-    provider: string;
-    mode: "api_key" | "oauth" | "token";
-    email?: string;
-    preferProfileFirst?: boolean;
+    providerId: string;
+    protocol: "openai-completions" | "anthropic-messages";
+    baseUrl?: string;
+    modelId: string;
+    apiKey?: string;
   },
 ): ClawdbotConfig {
-  const profiles = {
-    ...cfg.auth?.profiles,
-    [params.profileId]: {
-      provider: params.provider,
-      mode: params.mode,
-      ...(params.email ? { email: params.email } : {}),
-    },
-  };
+  const { providerId, protocol, baseUrl, modelId, apiKey } = params;
+  const targetModelRef = `${providerId}/${modelId}`;
 
-  // Only maintain `auth.order` when the user explicitly configured it.
-  // Default behavior: no explicit order -> resolveAuthProfileOrder can round-robin by lastUsed.
-  const existingProviderOrder = cfg.auth?.order?.[params.provider];
-  const preferProfileFirst = params.preferProfileFirst ?? true;
-  const reorderedProviderOrder =
-    existingProviderOrder && preferProfileFirst
-      ? [
-          params.profileId,
-          ...existingProviderOrder.filter((profileId) => profileId !== params.profileId),
-        ]
-      : existingProviderOrder;
-  const order =
-    existingProviderOrder !== undefined
-      ? {
-          ...cfg.auth?.order,
-          [params.provider]: reorderedProviderOrder?.includes(params.profileId)
-            ? reorderedProviderOrder
-            : [...(reorderedProviderOrder ?? []), params.profileId],
-        }
-      : cfg.auth?.order;
-  return {
-    ...cfg,
-    auth: {
-      ...cfg.auth,
-      profiles,
-      ...(order ? { order } : {}),
-    },
-  };
-}
-
-export function applyVolcengineProviderConfig(
-  cfg: ClawdbotConfig,
-  modelId: string,
-): ClawdbotConfig {
+  // Update models aliases
   const models = { ...cfg.agents?.defaults?.models };
-  const modelRef = `volcengine/${modelId}`;
-  models[modelRef] = {
-    ...models[modelRef],
-    alias: models[modelRef]?.alias ?? modelId,
+  models[targetModelRef] = {
+    ...models[targetModelRef],
+    alias: models[targetModelRef]?.alias ?? modelId,
   };
 
+  // Update providers
   const providers = { ...cfg.models?.providers };
-  const existingProvider = providers.volcengine;
-  const defaultProvider = buildVolcengineProvider();
+  const existingProvider = providers[providerId];
   const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
-  const _defaultModels = defaultProvider.models ?? [];
-  const hasDefaultModel = existingModels.some((model) => model.id === modelId);
-  const mergedModels =
-    existingModels.length > 0
-      ? hasDefaultModel
-        ? existingModels
-        : [
-            ...existingModels,
-            {
-              id: modelId,
-              name: modelId,
-              reasoning: false,
-              input: ["text"] as ("text" | "image")[],
-              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-              contextWindow: 128000,
-              maxTokens: 4096,
-            },
-          ]
-      : [
-          {
-            id: modelId,
-            name: modelId,
-            reasoning: false,
-            input: ["text"] as ("text" | "image")[],
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-            contextWindow: 128000,
-            maxTokens: 4096,
-          },
-        ];
 
-  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as Record<
-    string,
-    unknown
-  > as { apiKey?: string };
-  const resolvedApiKey = typeof existingApiKey === "string" ? existingApiKey : undefined;
+  // Build model definition
+  const modelDef = {
+    id: modelId,
+    name: modelId,
+    reasoning: false,
+    input: ["text"],
+    contextWindow: 128000, // Default assumption
+    maxTokens: 4096, // Default assumption
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  };
+
+  const hasModel = existingModels.some((m) => m.id === modelId);
+  const mergedModels = hasModel ? existingModels : [...existingModels, modelDef];
+
+  const { apiKey: existingApiKey, ...rest } = (existingProvider ?? {}) as any;
+  const resolvedApiKey =
+    apiKey ?? (typeof existingApiKey === "string" ? existingApiKey : undefined);
   const normalizedApiKey = resolvedApiKey?.trim();
-  providers.volcengine = {
-    ...existingProviderRest,
-    baseUrl: defaultProvider.baseUrl,
-    api: defaultProvider.api,
+
+  providers[providerId] = {
+    ...rest,
+    ...(baseUrl ? { baseUrl } : {}),
+    api: protocol,
     ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
     models: mergedModels,
   };
 
+  // Update primary model
+  const existingModel = cfg.agents?.defaults?.model;
+
   return {
     ...cfg,
     agents: {
@@ -998,33 +1047,19 @@ export function applyVolcengineProviderConfig(
       defaults: {
         ...cfg.agents?.defaults,
         models,
-      },
-    },
-    models: {
-      mode: cfg.models?.mode ?? "merge",
-      providers,
-    },
-  };
-}
-
-export function applyVolcengineConfig(cfg: ClawdbotConfig, modelId: string): ClawdbotConfig {
-  const next = applyVolcengineProviderConfig(cfg, modelId);
-  const existingModel = next.agents?.defaults?.model;
-  return {
-    ...next,
-    agents: {
-      ...next.agents,
-      defaults: {
-        ...next.agents?.defaults,
         model: {
           ...(existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
             ? {
                 fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
               }
             : undefined),
-          primary: `volcengine/${modelId}`,
+          primary: targetModelRef,
         },
       },
+    },
+    models: {
+      mode: cfg.models?.mode ?? "merge",
+      providers,
     },
   };
 }

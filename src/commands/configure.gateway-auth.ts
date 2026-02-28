@@ -75,6 +75,10 @@ export async function promptAuthConfig(
     }
   }
 
+  if (authChoice === "custom-provider-api-key") {
+    return next;
+  }
+
   const anthropicOAuth =
     authChoice === "setup-token" || authChoice === "token" || authChoice === "oauth";
 
