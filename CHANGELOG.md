@@ -1,6 +1,14 @@
 # Changelog
 
-Docs: https://docs.clawd.bot
+Docs: https://clawd.org.cn/
+
+## 0.1.7
+
+- **飞书能力增强**：新增 IM/任务/日历/表格工具与持久化命令队列恢复（#447，感谢 @dragonforce2010）
+
+### bug修复
+
+- **OTEL 诊断导出修复**：更新 OTEL 导出协议与指标/trace 统计，完善诊断事件处理（#324，感谢 @Ronald-Kong99）
 
 ## 0.1.6
 
@@ -28,7 +36,6 @@ Docs: https://docs.clawd.bot
 - **Pre-commit Hook 兼容性**：修复 VS Code 提交时报 `mapfile: command not found` 的问题
   - 兼容 macOS 默认 Bash 3.2，使用 `while read` 循环替代 Bash 4+ 的 `mapfile` 命令
   - 保持 NUL 分隔文件列表处理的安全性
-- **OTEL 诊断导出修复**：更新 OTEL 导出协议与指标/trace 统计，完善诊断事件处理（#324，感谢 @Ronald-Kong99）
 
 ### 🔧 CI/CD 改进
 
