@@ -75,6 +75,7 @@ export async function downloadImageFeishu(params: {
   } else if (typeof responseAny[Symbol.asyncIterator] === "function") {
     // Response is an async iterable
     const chunks: Buffer[] = [];
+    // eslint-disable-next-line @typescript-eslint/await-thenable -- runtime-guarded async iterable
     for await (const chunk of responseAny) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     }
@@ -82,6 +83,7 @@ export async function downloadImageFeishu(params: {
   } else if (typeof responseAny.read === "function") {
     // Response is a Readable stream
     const chunks: Buffer[] = [];
+    // eslint-disable-next-line @typescript-eslint/await-thenable -- runtime-guarded Readable
     for await (const chunk of responseAny as Readable) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     }
@@ -156,6 +158,7 @@ export async function downloadMessageResourceFeishu(params: {
   } else if (typeof responseAny[Symbol.asyncIterator] === "function") {
     // Response is an async iterable
     const chunks: Buffer[] = [];
+    // eslint-disable-next-line @typescript-eslint/await-thenable -- runtime-guarded async iterable
     for await (const chunk of responseAny) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     }
@@ -163,6 +166,7 @@ export async function downloadMessageResourceFeishu(params: {
   } else if (typeof responseAny.read === "function") {
     // Response is a Readable stream
     const chunks: Buffer[] = [];
+    // eslint-disable-next-line @typescript-eslint/await-thenable -- runtime-guarded Readable
     for await (const chunk of responseAny as Readable) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     }
