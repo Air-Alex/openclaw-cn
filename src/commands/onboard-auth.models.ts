@@ -203,10 +203,11 @@ export function buildDashscopeModelDefinition(): ModelDefinitionConfig {
 }
 
 // 新增：构建阿里云百炼（Coding Plan）默认模型定义
-export function buildDashscopeCodingPlanModelDefinition(): ModelDefinitionConfig {
+export function buildDashscopeCodingPlanModelDefinition(modelId?: string): ModelDefinitionConfig {
+  const id = modelId || DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_ID;
   return {
-    id: DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_ID,
-    name: "Qwen 2.5 Coder 32B",
+    id,
+    name: modelId ? id : "Qwen 2.5 Coder 32B",
     reasoning: false,
     input: ["text"],
     cost: DASHSCOPE_DEFAULT_COST, // 复用 DashScope 成本配置

@@ -43,7 +43,7 @@ import {
   DASHSCOPE_BASE_URL,
   DASHSCOPE_DEFAULT_MODEL_REF,
   DASHSCOPE_CODING_PLAN_BASE_URL,
-  DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_REF,
+  DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_ID,
 } from "./onboard-auth.models.js";
 import {
   buildDeepseekModelDefinition,
@@ -528,17 +528,23 @@ export function applyDashscopeConfig(cfg: ClawdbotConfig): ClawdbotConfig {
 }
 
 // 新增：阿里云百炼（Coding Plan）提供商配置
-export function applyDashscopeCodingPlanProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
+export function applyDashscopeCodingPlanProviderConfig(
+  cfg: ClawdbotConfig,
+  modelId?: string,
+): ClawdbotConfig {
+  const targetModelId = modelId || DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_ID;
+  const targetModelRef = `dashscope-coding-plan/${targetModelId}`;
+
   const models = { ...cfg.agents?.defaults?.models };
-  models[DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_REF] = {
-    ...models[DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_REF],
-    alias: models[DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_REF]?.alias ?? "Qwen 2.5 Coder",
+  models[targetModelRef] = {
+    ...models[targetModelRef],
+    alias: models[targetModelRef]?.alias ?? (modelId ? modelId : "Qwen 2.5 Coder"),
   };
 
   const providers = { ...cfg.models?.providers };
   const existingProvider = providers["dashscope-coding-plan"];
   const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
-  const defaultModel = buildDashscopeCodingPlanModelDefinition();
+  const defaultModel = buildDashscopeCodingPlanModelDefinition(modelId);
   const hasDefaultModel = existingModels.some((model) => model.id === defaultModel.id);
   const mergedModels = hasDefaultModel ? existingModels : [...existingModels, defaultModel];
   const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as {
@@ -570,9 +576,15 @@ export function applyDashscopeCodingPlanProviderConfig(cfg: ClawdbotConfig): Cla
   };
 }
 
-export function applyDashscopeCodingPlanConfig(cfg: ClawdbotConfig): ClawdbotConfig {
-  const next = applyDashscopeCodingPlanProviderConfig(cfg);
+export function applyDashscopeCodingPlanConfig(
+  cfg: ClawdbotConfig,
+  modelId?: string,
+): ClawdbotConfig {
+  const next = applyDashscopeCodingPlanProviderConfig(cfg, modelId);
   const existingModel = next.agents?.defaults?.model;
+  const targetModelId = modelId || DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_ID;
+  const targetModelRef = `dashscope-coding-plan/${targetModelId}`;
+
   return {
     ...next,
     agents: {
@@ -585,7 +597,7 @@ export function applyDashscopeCodingPlanConfig(cfg: ClawdbotConfig): ClawdbotCon
                 fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
               }
             : undefined),
-          primary: DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_REF,
+          primary: targetModelRef,
         },
       },
     },

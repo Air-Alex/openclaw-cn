@@ -66,7 +66,7 @@ import {
   applyDeepseekProviderConfig,
   SILICONFLOW_DEFAULT_MODEL_REF,
   DASHSCOPE_DEFAULT_MODEL_REF,
-  DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_REF,
+  DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_ID,
   DEEPSEEK_DEFAULT_MODEL_REF,
   setSiliconflowApiKey,
   setDashscopeApiKey,
@@ -334,13 +334,30 @@ export async function applyAuthChoiceApiProviders(
       mode: "api_key",
     });
     {
+      const useDefaultModel = await params.prompter.confirm({
+        message: `使用默认模型 (${DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_ID})？`,
+        initialValue: true,
+      });
+
+      let modelId = DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_ID;
+      if (!useDefaultModel) {
+        const input = await params.prompter.text({
+          message: "输入模型 ID",
+          validate: (val) => (String(val).trim().length > 0 ? undefined : "模型 ID 不能为空"),
+        });
+        if (typeof input === "string") {
+          modelId = input.trim();
+        }
+      }
+
+      const modelRef = `dashscope-coding-plan/${modelId}`;
       const applied = await applyDefaultModelChoice({
         config: nextConfig,
         setDefaultModel: params.setDefaultModel,
-        defaultModel: DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_REF,
-        applyDefaultConfig: applyDashscopeCodingPlanConfig,
-        applyProviderConfig: applyDashscopeCodingPlanProviderConfig,
-        noteDefault: DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_REF,
+        defaultModel: modelRef,
+        applyDefaultConfig: (cfg) => applyDashscopeCodingPlanConfig(cfg, modelId),
+        applyProviderConfig: (cfg) => applyDashscopeCodingPlanProviderConfig(cfg, modelId),
+        noteDefault: modelRef,
         noteAgentModel,
         prompter: params.prompter,
       });
