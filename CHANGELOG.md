@@ -5,6 +5,7 @@ Docs: https://clawd.org.cn/
 ## 0.1.7
 
 - **飞书能力增强**：新增 IM/任务/日历/表格工具与持久化命令队列恢复（#447，感谢 @dragonforce2010）
+- **Doubao Embedding Provider**：Memory LanceDB 新增 Doubao 向量模型支持（#448，感谢 @yanghua）
 
 ### bug修复
 
