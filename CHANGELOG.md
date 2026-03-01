@@ -68,6 +68,14 @@ Docs: https://clawd.org.cn/
 
 - **图像清理尺寸可配置**：新增 `agents.defaults.imageMaxDimensionPx` 配置项，允许自定义 transcript/tool 图像下采样的最大边长（默认 1200px）（upstream b05e89e5e605）
 
+## 0.1.5-fix.3
+
+### 🐛 Bug 修复
+
+- **Telegram 命令名称规范化**：修复 Telegram 原生命令名称中的连字符导致 `BOT_COMMAND_INVALID` 错误的问题——现在自动将命令名称中的 `-` 转换为 `_`（例如 `export-session` → `export_session`），符合 Telegram Bot API 规范；同时改进命令同步失败时的错误日志输出（#19257，感谢 @akramcodez）
+- **Config 对象数组合并增强**：强化 `config.patch` 中对象数组按 id 合并的回退处理逻辑，确保基础数组已完全按 id 索引时才启用合并，避免在混合 id 条目时发生不可预期的行为（#17989，感谢 @stakeswky 和 @sebslight）
+- **Config 补丁数组保护**：防止 `config.patch` 在补丁条目缺少 id 时销毁整个数组——现在即使部分补丁条目缺少 id，也会将它们追加到数组末尾而非触发全量替换，避免部分 `agents.list` 更新误删无关 Agent（#18030，感谢 @stakeswky）
+
 ## 0.1.5-fix.2
 
 ### 🐛 Bug 修复
