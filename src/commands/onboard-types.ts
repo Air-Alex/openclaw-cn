@@ -18,6 +18,7 @@ export type AuthChoice =
   | "dashscope-coding-plan-api-key"
   | "deepseek-api-key"
   | "volcengine-api-key"
+  | "volcengine-coding-plan-api-key"
   | "openrouter-api-key"
   | "litellm-api-key"
   | "ai-gateway-api-key"

@@ -57,6 +57,26 @@ export const DASHSCOPE_CODING_PLAN_BASE_URL = "https://coding.dashscope.aliyuncs
 export const DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_ID = "qwen2.5-coder-32b-instruct";
 export const DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_REF = `dashscope-coding-plan/${DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_ID}`;
 
+// 火山引擎 Coding Plan：OpenAI 兼容协议
+export const VOLCENGINE_CODING_PLAN_BASE_URL = "https://ark.cn-beijing.volces.com/api/coding/v3";
+export const VOLCENGINE_CODING_PLAN_DEFAULT_MODEL_ID = "doubao-seed-2.0-code";
+export const VOLCENGINE_CODING_PLAN_DEFAULT_MODEL_REF = `volcengine-coding-plan/${VOLCENGINE_CODING_PLAN_DEFAULT_MODEL_ID}`;
+export const VOLCENGINE_CODING_PLAN_DEFAULT_CONTEXT_WINDOW = 128000;
+export const VOLCENGINE_CODING_PLAN_DEFAULT_MAX_TOKENS = 8192;
+
+export function buildVolcengineCodingPlanModelDefinition(modelId?: string): ModelDefinitionConfig {
+  const id = modelId || VOLCENGINE_CODING_PLAN_DEFAULT_MODEL_ID;
+  return {
+    id,
+    name: modelId ? id : "Doubao Seed 2.0 Code",
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: VOLCENGINE_CODING_PLAN_DEFAULT_CONTEXT_WINDOW,
+    maxTokens: VOLCENGINE_CODING_PLAN_DEFAULT_MAX_TOKENS,
+  };
+}
+
 // 新增：OpenAI兼容供应商默认配置（基础URL与模型ID）
 // 硅基流动：官方提供OpenAI兼容API，常见基地址如下
 export const SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1";

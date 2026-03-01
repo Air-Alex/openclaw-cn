@@ -165,8 +165,8 @@ const AUTH_CHOICE_GROUP_DEFS: {
   {
     value: "volcengine",
     label: "火山引擎 (VolcanoEngine)",
-    hint: "ARK API key",
-    choices: ["volcengine-api-key"],
+    hint: "ARK API key + Coding Plan",
+    choices: ["volcengine-api-key", "volcengine-coding-plan-api-key"],
   },
 ];
 
@@ -273,6 +273,11 @@ export function buildAuthChoiceOptions(params: {
   });
   options.push({ value: "deepseek-api-key", label: "DeepSeek API key" });
   options.push({ value: "volcengine-api-key", label: "火山引擎 (ARK) API key" });
+  options.push({
+    value: "volcengine-coding-plan-api-key",
+    label: "火山引擎 (Coding Plan)",
+    hint: "OpenAI 兼容协议",
+  });
   options.push({
     value: "custom-provider-api-key",
     label: "Custom Provider API key",

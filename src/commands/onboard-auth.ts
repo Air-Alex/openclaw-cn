@@ -38,6 +38,8 @@ export {
   applyDeepseekProviderConfig,
   applyMoonshotCodingPlanConfig,
   applyMoonshotCodingPlanProviderConfig,
+  applyVolcengineCodingPlanConfig,
+  applyVolcengineCodingPlanProviderConfig,
   applyCustomProviderConfig,
 } from "./onboard-auth.config-core.js";
 export {
@@ -80,6 +82,7 @@ export {
   setDashscopeApiKey,
   setDashscopeCodingPlanApiKey,
   setMoonshotCodingPlanApiKey,
+  setVolcengineCodingPlanApiKey,
   setDeepseekApiKey,
 } from "./onboard-auth.credentials.js";
 export {
@@ -114,6 +117,10 @@ export {
   buildDashscopeModelDefinition,
   buildDashscopeCodingPlanModelDefinition,
   buildMoonshotCodingPlanModelDefinition,
+  buildVolcengineCodingPlanModelDefinition,
+  VOLCENGINE_CODING_PLAN_BASE_URL,
+  VOLCENGINE_CODING_PLAN_DEFAULT_MODEL_ID,
+  VOLCENGINE_CODING_PLAN_DEFAULT_MODEL_REF,
   buildDeepseekModelDefinition,
 } from "./onboard-auth.models.js";
 

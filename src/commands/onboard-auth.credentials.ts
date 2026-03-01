@@ -244,6 +244,19 @@ export async function setDashscopeCodingPlanApiKey(key: string, agentDir?: strin
   });
 }
 
+// 新增：火山引擎 Coding Plan API Key 写入到代理目录
+export async function setVolcengineCodingPlanApiKey(key: string, agentDir?: string) {
+  upsertAuthProfile({
+    profileId: "volcengine-coding-plan:default",
+    credential: {
+      type: "api_key",
+      provider: "volcengine-coding-plan",
+      key,
+    },
+    agentDir: resolveAuthAgentDir(agentDir),
+  });
+}
+
 // 新增：Kimi Coding Plan API Key 写入到代理目录
 export async function setMoonshotCodingPlanApiKey(key: string, agentDir?: string) {
   upsertAuthProfile({

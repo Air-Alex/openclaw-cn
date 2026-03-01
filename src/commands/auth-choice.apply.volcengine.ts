@@ -1,6 +1,7 @@
 import type { ApplyAuthChoiceParams, ApplyAuthChoiceResult } from "./auth-choice.apply.js";
 import { resolveEnvApiKey } from "../agents/model-auth.js";
 import { VOLCENGINE_API_BASE_URL } from "../agents/models-config.providers.js";
+import { applyDefaultModelChoice } from "./auth-choice.default-model.js";
 import {
   formatApiKeyPreview,
   normalizeApiKeyInput,
@@ -10,7 +11,19 @@ import {
   applyAuthProfileConfig,
   applyVolcengineConfig,
   setVolcengineApiKey,
+  setVolcengineCodingPlanApiKey,
+  applyVolcengineCodingPlanConfig,
+  applyVolcengineCodingPlanProviderConfig,
 } from "./onboard-auth.js";
+
+const VOLCENGINE_CODING_PLAN_MODELS = [
+  { value: "doubao-seed-2.0-code", label: "Doubao Seed 2.0 Code", hint: "推荐" },
+  { value: "doubao-seed-code", label: "Doubao Seed Code" },
+  { value: "glm-4.7", label: "GLM 4.7" },
+  { value: "deepseek-v3.2", label: "DeepSeek V3.2" },
+  { value: "kimi-k2-thinking", label: "Kimi K2 Thinking" },
+  { value: "kimi-k2.5", label: "Kimi K2.5" },
+];
 
 export async function applyAuthChoiceVolcengine(
   params: ApplyAuthChoiceParams,
@@ -18,8 +31,12 @@ export async function applyAuthChoiceVolcengine(
   const authChoice = params.authChoice;
 
   // @ts-ignore -- cherry-pick upstream type mismatch
-  if (authChoice !== "volcengine-api-key") {
+  if (authChoice !== "volcengine-api-key" && authChoice !== "volcengine-coding-plan-api-key") {
     return null;
+  }
+
+  if (authChoice === "volcengine-coding-plan-api-key") {
+    return applyVolcengineCodingPlan(params);
   }
 
   // @ts-ignore -- cherry-pick upstream type mismatch
@@ -114,6 +131,12 @@ export async function applyAuthChoiceVolcengine(
 
   while (!modelId) {
     const PREDEFINED_MODELS = [
+      "doubao-seed-2.0-code",
+      "doubao-seed-code",
+      "glm-4.7",
+      "deepseek-v3.2",
+      "kimi-k2-thinking",
+      "kimi-k2.5",
       "glm-4-7-251222",
       "doubao-seed-1-8-251228",
       "deepseek-v3-2-251201",
@@ -179,4 +202,93 @@ export async function applyAuthChoiceVolcengine(
   nextConfig = applyVolcengineConfig(nextConfig, modelId);
 
   return { config: nextConfig, agentModelOverride: modelId };
+}
+
+async function applyVolcengineCodingPlan(
+  params: ApplyAuthChoiceParams,
+): Promise<ApplyAuthChoiceResult | null> {
+  let nextConfig = params.config;
+  let agentModelOverride: string | undefined;
+  const noteAgentModel = async (model: string) => {
+    if (!params.agentId) return;
+    await params.prompter.note(
+      `Default model set to ${model} for agent "${params.agentId}".`,
+      "Model configured",
+    );
+  };
+
+  let hasCredential = false;
+  if (
+    !hasCredential &&
+    params.opts?.token &&
+    params.opts?.tokenProvider === "volcengine-coding-plan"
+  ) {
+    await setVolcengineCodingPlanApiKey(normalizeApiKeyInput(params.opts.token), params.agentDir);
+    hasCredential = true;
+  }
+  const envKey = resolveEnvApiKey("volcengine-coding-plan") ?? resolveEnvApiKey("volcengine");
+  if (envKey && !hasCredential) {
+    const useExisting = await params.prompter.confirm({
+      message: `使用已有 API Key (${envKey.source}, ${formatApiKeyPreview(envKey.apiKey)})？`,
+      initialValue: true,
+    });
+    if (useExisting) {
+      await setVolcengineCodingPlanApiKey(envKey.apiKey, params.agentDir);
+      hasCredential = true;
+    }
+  }
+  if (!hasCredential) {
+    await params.prompter.note(
+      [
+        "火山引擎 Coding Plan 使用 OpenAI 兼容协议的专用端点。",
+        "在火山引擎 ARK 控制台获取 API Key：https://console.volcengine.com/ark",
+      ].join("\n"),
+      "火山引擎 Coding Plan",
+    );
+    const key = await params.prompter.text({
+      message: "输入火山引擎 API key",
+      validate: validateApiKeyInput,
+    });
+    await setVolcengineCodingPlanApiKey(normalizeApiKeyInput(String(key)), params.agentDir);
+  }
+  nextConfig = applyAuthProfileConfig(nextConfig, {
+    profileId: "volcengine-coding-plan:default",
+    provider: "volcengine-coding-plan",
+    mode: "api_key",
+  });
+
+  const modelChoice = await params.prompter.select({
+    message: "选择模型",
+    options: [
+      ...VOLCENGINE_CODING_PLAN_MODELS,
+      { value: "__manual__", label: "手动输入模型 ID", hint: "自定义模型" },
+    ],
+  });
+
+  let modelId: string;
+  if (modelChoice === "__manual__") {
+    const input = await params.prompter.text({
+      message: "输入模型 ID",
+      validate: (val) => (String(val).trim().length > 0 ? undefined : "模型 ID 不能为空"),
+    });
+    modelId = String(input).trim();
+  } else {
+    modelId = String(modelChoice);
+  }
+
+  const modelRef = `volcengine-coding-plan/${modelId}`;
+  const applied = await applyDefaultModelChoice({
+    config: nextConfig,
+    setDefaultModel: params.setDefaultModel,
+    defaultModel: modelRef,
+    applyDefaultConfig: (cfg) => applyVolcengineCodingPlanConfig(cfg, modelId),
+    applyProviderConfig: (cfg) => applyVolcengineCodingPlanProviderConfig(cfg, modelId),
+    noteDefault: modelRef,
+    noteAgentModel,
+    prompter: params.prompter,
+  });
+  nextConfig = applied.config;
+  agentModelOverride = applied.agentModelOverride ?? agentModelOverride;
+
+  return { config: nextConfig, agentModelOverride };
 }
