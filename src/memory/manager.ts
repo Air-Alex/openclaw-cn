@@ -1751,7 +1751,7 @@ export class MemoryIndexManager implements MemorySearchManager {
       fallback: async () => await this.embedChunksInBatches(chunks),
     });
     if (Array.isArray(batchResult)) return batchResult;
-    const byCustomId = batchResult;
+    const byCustomId = batchResult as Map<string, number[]>;
 
     const toCache: Array<{ hash: string; embedding: number[] }> = [];
     for (const [customId, embedding] of byCustomId.entries()) {
@@ -1821,7 +1821,7 @@ export class MemoryIndexManager implements MemorySearchManager {
       fallback: async () => await this.embedChunksInBatches(chunks),
     });
     if (Array.isArray(batchResult)) return batchResult;
-    const byCustomId = batchResult;
+    const byCustomId = batchResult as Map<string, number[]>;
 
     const toCache: Array<{ hash: string; embedding: number[] }> = [];
     for (const [customId, embedding] of byCustomId.entries()) {
