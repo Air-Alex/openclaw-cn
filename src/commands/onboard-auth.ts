@@ -36,6 +36,8 @@ export {
   applyDashscopeCodingPlanProviderConfig,
   applyDeepseekConfig,
   applyDeepseekProviderConfig,
+  applyMoonshotCodingPlanConfig,
+  applyMoonshotCodingPlanProviderConfig,
   applyCustomProviderConfig,
 } from "./onboard-auth.config-core.js";
 export {
@@ -77,6 +79,7 @@ export {
   setSiliconflowApiKey,
   setDashscopeApiKey,
   setDashscopeCodingPlanApiKey,
+  setMoonshotCodingPlanApiKey,
   setDeepseekApiKey,
 } from "./onboard-auth.credentials.js";
 export {
@@ -104,9 +107,13 @@ export {
   DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_ID,
   DEEPSEEK_BASE_URL,
   DEEPSEEK_DEFAULT_MODEL_REF,
+  MOONSHOT_CODING_PLAN_BASE_URL,
+  MOONSHOT_CODING_PLAN_DEFAULT_MODEL_ID,
+  MOONSHOT_CODING_PLAN_DEFAULT_MODEL_REF,
   buildSiliconflowModelDefinition,
   buildDashscopeModelDefinition,
   buildDashscopeCodingPlanModelDefinition,
+  buildMoonshotCodingPlanModelDefinition,
   buildDeepseekModelDefinition,
 } from "./onboard-auth.models.js";
 

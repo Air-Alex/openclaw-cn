@@ -7,6 +7,7 @@ Docs: https://clawd.org.cn/
 - **飞书能力增强**：新增 IM/任务/日历/表格工具与持久化命令队列恢复（#447，感谢 @dragonforce2010）
 - **Doubao Embedding Provider**：Memory LanceDB 新增 Doubao 向量模型支持（#448，感谢 @yanghua）
 - **Coding Plan 支持**：新增阿里云百炼 Coding Plan 选项，支持 OpenAI/Anthropic 兼容协议
+- **Kimi Coding Plan 支持**：新增 Moonshot AI (Kimi) Coding Plan 配置选项，使用 OpenAI 兼容协议（base URL: `https://api.kimi.com/coding/v1`，默认模型: `kimi-for-coding`）
 - **技能加载安全钩子修复**：before_skills_load 处理安全阻断与配置一致性修复（#452，感谢 @qqdxyg）
 - **Memory LanceDB 云存储支持**：新增 `storageOptions` 配置项，支持 S3/GCS 等云对象存储后端（#454，感谢 @ddupg）
 

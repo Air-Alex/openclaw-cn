@@ -25,6 +25,7 @@ export type AuthChoice =
   | "moonshot-api-key"
   | "moonshot-api-key-cn"
   | "kimi-code-api-key"
+  | "moonshot-coding-plan-api-key"
   | "synthetic-api-key"
   | "venice-api-key"
   | "together-api-key"

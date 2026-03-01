@@ -72,7 +72,11 @@ import {
   setSiliconflowApiKey,
   setDashscopeApiKey,
   setDashscopeCodingPlanApiKey,
+  setMoonshotCodingPlanApiKey,
   setDeepseekApiKey,
+  applyMoonshotCodingPlanConfig,
+  applyMoonshotCodingPlanProviderConfig,
+  MOONSHOT_CODING_PLAN_DEFAULT_MODEL_ID,
 } from "./onboard-auth.js";
 import { OPENCODE_ZEN_DEFAULT_MODEL } from "./opencode-zen-model-default.js";
 
@@ -113,6 +117,8 @@ export async function applyAuthChoiceApiProviders(
       authChoice = "kimi-code-api-key";
     } else if (params.opts.tokenProvider === "dashscope-coding-plan") {
       authChoice = "dashscope-coding-plan-api-key";
+    } else if (params.opts.tokenProvider === "moonshot-coding-plan") {
+      authChoice = "moonshot-coding-plan-api-key";
     } else if (params.opts.tokenProvider === "google") {
       authChoice = "gemini-api-key";
     } else if (params.opts.tokenProvider === "zai") {
@@ -358,6 +364,81 @@ export async function applyAuthChoiceApiProviders(
         defaultModel: modelRef,
         applyDefaultConfig: (cfg) => applyDashscopeCodingPlanConfig(cfg, modelId),
         applyProviderConfig: (cfg) => applyDashscopeCodingPlanProviderConfig(cfg, modelId),
+        noteDefault: modelRef,
+        noteAgentModel,
+        prompter: params.prompter,
+      });
+      nextConfig = applied.config;
+      agentModelOverride = applied.agentModelOverride ?? agentModelOverride;
+    }
+    return { config: nextConfig, agentModelOverride };
+  }
+
+  // 新增：Kimi Coding Plan API Key 认证与默认模型配置
+  if (authChoice === "moonshot-coding-plan-api-key") {
+    let hasCredential = false;
+    if (
+      !hasCredential &&
+      params.opts?.token &&
+      params.opts?.tokenProvider === "moonshot-coding-plan"
+    ) {
+      await setMoonshotCodingPlanApiKey(normalizeApiKeyInput(params.opts.token), params.agentDir);
+      hasCredential = true;
+    }
+    const envKey = resolveEnvApiKey("moonshot-coding-plan");
+    if (envKey && !hasCredential) {
+      const useExisting = await params.prompter.confirm({
+        message: `使用已有 MOONSHOT_CODING_PLAN_API_KEY (${envKey.source}, ${formatApiKeyPreview(envKey.apiKey)})？`,
+        initialValue: true,
+      });
+      if (useExisting) {
+        await setMoonshotCodingPlanApiKey(envKey.apiKey, params.agentDir);
+        hasCredential = true;
+      }
+    }
+    if (!hasCredential) {
+      await params.prompter.note(
+        [
+          "Kimi Coding 使用 OpenAI 兼容协议的专用端点。",
+          "在 Kimi 会员页面获取 API Key：https://kimi.moonshot.cn/",
+        ].join("\n"),
+        "Kimi Coding Plan",
+      );
+      const key = await params.prompter.text({
+        message: "输入 Kimi Coding API key",
+        validate: validateApiKeyInput,
+      });
+      await setMoonshotCodingPlanApiKey(normalizeApiKeyInput(String(key)), params.agentDir);
+    }
+    nextConfig = applyAuthProfileConfig(nextConfig, {
+      profileId: "moonshot-coding-plan:default",
+      provider: "moonshot-coding-plan",
+      mode: "api_key",
+    });
+    {
+      const useDefaultModel = await params.prompter.confirm({
+        message: `使用默认模型 (${MOONSHOT_CODING_PLAN_DEFAULT_MODEL_ID})？`,
+        initialValue: true,
+      });
+
+      let modelId = MOONSHOT_CODING_PLAN_DEFAULT_MODEL_ID;
+      if (!useDefaultModel) {
+        const input = await params.prompter.text({
+          message: "输入模型 ID",
+          validate: (val) => (String(val).trim().length > 0 ? undefined : "模型 ID 不能为空"),
+        });
+        if (typeof input === "string") {
+          modelId = input.trim();
+        }
+      }
+
+      const modelRef = `moonshot-coding-plan/${modelId}`;
+      const applied = await applyDefaultModelChoice({
+        config: nextConfig,
+        setDefaultModel: params.setDefaultModel,
+        defaultModel: modelRef,
+        applyDefaultConfig: (cfg) => applyMoonshotCodingPlanConfig(cfg, modelId),
+        applyProviderConfig: (cfg) => applyMoonshotCodingPlanProviderConfig(cfg, modelId),
         noteDefault: modelRef,
         noteAgentModel,
         prompter: params.prompter,

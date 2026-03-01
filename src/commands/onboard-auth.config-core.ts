@@ -51,6 +51,11 @@ import {
   DEEPSEEK_BASE_URL,
   DEEPSEEK_DEFAULT_MODEL_REF,
 } from "./onboard-auth.models.js";
+import {
+  buildMoonshotCodingPlanModelDefinition,
+  MOONSHOT_CODING_PLAN_BASE_URL,
+  MOONSHOT_CODING_PLAN_DEFAULT_MODEL_ID,
+} from "./onboard-auth.models.js";
 
 export function applyAuthProfileConfig(
   cfg: ClawdbotConfig,
@@ -964,6 +969,83 @@ export function applyDashscopeCodingPlanConfig(
   const existingModel = next.agents?.defaults?.model;
   const targetModelId = modelId || DASHSCOPE_CODING_PLAN_DEFAULT_MODEL_ID;
   const targetModelRef = `dashscope-coding-plan/${targetModelId}`;
+
+  return {
+    ...next,
+    agents: {
+      ...next.agents,
+      defaults: {
+        ...next.agents?.defaults,
+        model: {
+          ...(existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
+            ? {
+                fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
+              }
+            : undefined),
+          primary: targetModelRef,
+        },
+      },
+    },
+  };
+}
+
+// 新增：Kimi Coding Plan 提供商配置
+export function applyMoonshotCodingPlanProviderConfig(
+  cfg: ClawdbotConfig,
+  modelId?: string,
+): ClawdbotConfig {
+  const targetModelId = modelId || MOONSHOT_CODING_PLAN_DEFAULT_MODEL_ID;
+  const targetModelRef = `moonshot-coding-plan/${targetModelId}`;
+
+  const models = { ...cfg.agents?.defaults?.models };
+  models[targetModelRef] = {
+    ...models[targetModelRef],
+    alias: models[targetModelRef]?.alias ?? (modelId ? modelId : "Kimi Coding"),
+  };
+
+  const providers = { ...cfg.models?.providers };
+  const existingProvider = providers["moonshot-coding-plan"];
+  const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
+  const defaultModel = buildMoonshotCodingPlanModelDefinition(modelId);
+  const hasDefaultModel = existingModels.some((model) => model.id === defaultModel.id);
+  const mergedModels = hasDefaultModel ? existingModels : [...existingModels, defaultModel];
+  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as {
+    apiKey?: string;
+  };
+  const resolvedApiKey = typeof existingApiKey === "string" ? existingApiKey : undefined;
+  const normalizedApiKey = resolvedApiKey?.trim();
+  providers["moonshot-coding-plan"] = {
+    ...existingProviderRest,
+    baseUrl: MOONSHOT_CODING_PLAN_BASE_URL,
+    api: "openai-completions",
+    ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
+    models: mergedModels.length > 0 ? mergedModels : [defaultModel],
+  };
+
+  return {
+    ...cfg,
+    agents: {
+      ...cfg.agents,
+      defaults: {
+        ...cfg.agents?.defaults,
+        models,
+      },
+    },
+    models: {
+      mode: cfg.models?.mode ?? "merge",
+      providers,
+    },
+  };
+}
+
+export function applyMoonshotCodingPlanConfig(
+  cfg: ClawdbotConfig,
+  modelId?: string,
+): ClawdbotConfig {
+  const next = applyMoonshotCodingPlanProviderConfig(cfg, modelId);
+  const existingModel = next.agents?.defaults?.model;
+  const targetModelId = modelId || MOONSHOT_CODING_PLAN_DEFAULT_MODEL_ID;
+  const targetModelRef = `moonshot-coding-plan/${targetModelId}`;
 
   return {
     ...next,

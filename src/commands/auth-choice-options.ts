@@ -73,7 +73,12 @@ const AUTH_CHOICE_GROUP_DEFS: {
     value: "moonshot",
     label: "Moonshot AI (Kimi K2.5)",
     hint: "Kimi K2.5 + Kimi Coding",
-    choices: ["moonshot-api-key", "moonshot-api-key-cn", "kimi-code-api-key"],
+    choices: [
+      "moonshot-api-key",
+      "moonshot-api-key-cn",
+      "kimi-code-api-key",
+      "moonshot-coding-plan-api-key",
+    ],
   },
   {
     value: "custom",
@@ -211,6 +216,11 @@ export function buildAuthChoiceOptions(params: {
     label: "Kimi API key (.cn)",
   });
   options.push({ value: "kimi-code-api-key", label: "Kimi Code API key (subscription)" });
+  options.push({
+    value: "moonshot-coding-plan-api-key",
+    label: "Kimi Coding (Coding Plan)",
+    hint: "OpenAI 兼容协议",
+  });
   options.push({ value: "synthetic-api-key", label: "Synthetic API key" });
   options.push({
     value: "venice-api-key",

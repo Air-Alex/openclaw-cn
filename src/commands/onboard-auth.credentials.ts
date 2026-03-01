@@ -244,6 +244,19 @@ export async function setDashscopeCodingPlanApiKey(key: string, agentDir?: strin
   });
 }
 
+// 新增：Kimi Coding Plan API Key 写入到代理目录
+export async function setMoonshotCodingPlanApiKey(key: string, agentDir?: string) {
+  upsertAuthProfile({
+    profileId: "moonshot-coding-plan:default",
+    credential: {
+      type: "api_key",
+      provider: "moonshot-coding-plan",
+      key,
+    },
+    agentDir: resolveAuthAgentDir(agentDir),
+  });
+}
+
 // 新增：DeepSeek API Key 写入到代理目录
 export async function setDeepseekApiKey(key: string, agentDir?: string) {
   upsertAuthProfile({

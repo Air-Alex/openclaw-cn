@@ -22,6 +22,13 @@ export const MOONSHOT_DEFAULT_COST = {
 export const KIMI_CODING_MODEL_ID = "k2p5";
 export const KIMI_CODING_MODEL_REF = `kimi-coding/${KIMI_CODING_MODEL_ID}`;
 
+// Kimi Coding Plan：OpenAI 兼容协议
+export const MOONSHOT_CODING_PLAN_BASE_URL = "https://api.kimi.com/coding/v1";
+export const MOONSHOT_CODING_PLAN_DEFAULT_MODEL_ID = "kimi-for-coding";
+export const MOONSHOT_CODING_PLAN_DEFAULT_MODEL_REF = `moonshot-coding-plan/${MOONSHOT_CODING_PLAN_DEFAULT_MODEL_ID}`;
+export const MOONSHOT_CODING_PLAN_DEFAULT_CONTEXT_WINDOW = 262144;
+export const MOONSHOT_CODING_PLAN_DEFAULT_MAX_TOKENS = 32768;
+
 // Pricing: MiniMax doesn't publish public rates. Override in models.json for accurate costs.
 export const MINIMAX_API_COST = {
   input: 15,
@@ -138,6 +145,19 @@ export function buildMinimaxApiModelDefinition(modelId: string): ModelDefinition
     contextWindow: DEFAULT_MINIMAX_CONTEXT_WINDOW,
     maxTokens: DEFAULT_MINIMAX_MAX_TOKENS,
   });
+}
+
+export function buildMoonshotCodingPlanModelDefinition(modelId?: string): ModelDefinitionConfig {
+  const id = modelId || MOONSHOT_CODING_PLAN_DEFAULT_MODEL_ID;
+  return {
+    id,
+    name: modelId ? id : "Kimi Coding",
+    reasoning: false,
+    input: ["text"],
+    cost: MOONSHOT_DEFAULT_COST,
+    contextWindow: MOONSHOT_CODING_PLAN_DEFAULT_CONTEXT_WINDOW,
+    maxTokens: MOONSHOT_CODING_PLAN_DEFAULT_MAX_TOKENS,
+  };
 }
 
 export function buildMoonshotModelDefinition(): ModelDefinitionConfig {
