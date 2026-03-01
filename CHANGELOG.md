@@ -80,6 +80,7 @@ Docs: https://clawd.org.cn/
 
 ### 🐛 Bug 修复
 
+- **Session threadId 泄漏修复**：修复用户从 DM topic (thread) 切换到主 DM 时，stale `lastThreadId` 导致回复错误发送到旧 topic 的问题——非 thread session 现在正确地不继承历史 threadId（感谢上游 commit [`5f821ed`](https://github.com/openclaw/openclaw/commit/5f821ed06731e81002b69af329a151da4efdafa2)）
 - **Control UI 网关 Token 修复**：修复首次安装后打开带 Token 的仪表盘 URL 时，Token 未被持久化导致网关连接报 `unauthorized: gateway token missing (1008)` 的问题
 - **MiniMax API Key 认证修复**：修复手动配置 MiniMax API Key 后认证失败的问题——向导错误地将 API Key 用户路由到仅接受 OAuth Token 的 Anthropic 兼容端点 (`api.minimax.io/anthropic`)，现已切换到正确的 OpenAI 兼容端点 (`api.minimax.chat/v1`)
 
