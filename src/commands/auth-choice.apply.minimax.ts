@@ -47,6 +47,73 @@ export async function applyAuthChoiceMiniMax(
     });
   }
 
+  if (params.authChoice === "minimax-api-key") {
+    let hasCredential = false;
+    const envKey = resolveEnvApiKey("minimax");
+    if (envKey) {
+      const useExisting = await params.prompter.confirm({
+        message: `Use existing MINIMAX_API_KEY (${envKey.source}, ${formatApiKeyPreview(envKey.apiKey)})?`,
+        initialValue: true,
+      });
+      if (useExisting) {
+        await setMinimaxApiKey(envKey.apiKey, params.agentDir);
+        hasCredential = true;
+      }
+    }
+    if (!hasCredential) {
+      const key = await params.prompter.text({
+        message: "Enter MiniMax API key",
+        validate: validateApiKeyInput,
+      });
+      await setMinimaxApiKey(normalizeApiKeyInput(String(key)), params.agentDir);
+    }
+    nextConfig = applyAuthProfileConfig(nextConfig, {
+      profileId: "minimax:default",
+      provider: "minimax",
+      mode: "api_key",
+    });
+
+    const modelChoice = await params.prompter.select({
+      message: "选择 MiniMax 模型",
+      options: [
+        { value: "MiniMax-M2.5", label: "MiniMax M2.5", hint: "顶尖性能与极致性价比（推荐）" },
+        {
+          value: "MiniMax-M2.5-highspeed",
+          label: "MiniMax M2.5 Highspeed",
+          hint: "极速版 (~100 TPS)",
+        },
+        { value: "MiniMax-M2.1", label: "MiniMax M2.1" },
+        {
+          value: "MiniMax-M2.1-highspeed",
+          label: "MiniMax M2.1 Highspeed",
+          hint: "极速版 (~100 TPS)",
+        },
+        {
+          value: "MiniMax-M2.1-lightning",
+          label: "MiniMax M2.1 Lightning",
+          hint: "Faster, higher output cost",
+        },
+        { value: "MiniMax-M2", label: "MiniMax M2", hint: "专为高效编码与 Agent 工作流而生" },
+      ],
+    });
+    const modelId = String(modelChoice);
+    {
+      const modelRef = `minimax/${modelId}`;
+      const applied = await applyDefaultModelChoice({
+        config: nextConfig,
+        setDefaultModel: params.setDefaultModel,
+        defaultModel: modelRef,
+        applyDefaultConfig: (config) => applyMinimaxApiConfig(config, modelId),
+        applyProviderConfig: (config) => applyMinimaxApiProviderConfig(config, modelId),
+        noteAgentModel,
+        prompter: params.prompter,
+      });
+      nextConfig = applied.config;
+      agentModelOverride = applied.agentModelOverride ?? agentModelOverride;
+    }
+    return { config: nextConfig, agentModelOverride };
+  }
+
   if (
     params.authChoice === "minimax-cloud" ||
     params.authChoice === "minimax-api" ||
