@@ -426,6 +426,7 @@ export async function runEmbeddedPiAgent(
       let toolResultTruncationAttempted = false;
       const usageAccumulator = createUsageAccumulator();
       let lastRunPromptUsage: ReturnType<typeof normalizeUsage> | undefined;
+      let lastTurnTotal: number | undefined;
       let autoCompactionCount = 0;
       try {
         while (true) {
@@ -513,6 +514,7 @@ export async function runEmbeddedPiAgent(
           // Keep prompt size from the latest model call so session totalTokens
           // reflects current context usage, not accumulated tool-loop usage.
           lastRunPromptUsage = lastAssistantUsage ?? attemptUsage;
+          lastTurnTotal = lastAssistantUsage?.total ?? attemptUsage?.total;
           // @ts-ignore -- cherry-pick upstream type mismatch
           autoCompactionCount += Math.max(0, attempt.compactionCount ?? 0);
           const formattedAssistantErrorText = lastAssistant
@@ -896,6 +898,9 @@ export async function runEmbeddedPiAgent(
           }
 
           const usage = toNormalizedUsage(usageAccumulator);
+          if (usage && lastTurnTotal && lastTurnTotal > 0) {
+            usage.total = lastTurnTotal;
+          }
           // Extract the last individual API call's usage for context-window
           // utilization display. The accumulated `usage` sums input tokens
           // across all calls (tool-use loops, compaction retries), which

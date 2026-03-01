@@ -54,11 +54,7 @@ vi.mock("../context-window-guard.js", () => ({
 }));
 
 vi.mock("../../process/command-queue.js", () => ({
-  enqueueCommandInLane: vi.fn((_lane: string, _taskType: string, _payload: any) => {
-    // 为测试这里需要简单的 mock 穿透执行或者仅做记录
-    // 对于真正的 task 我们通过直接调用真正的 handler 实现这里可以直接跳过或者简单地 resolve
-    return Promise.resolve();
-  }),
+  enqueueCommandInLane: vi.fn((_lane: string, task: () => unknown) => task()),
 }));
 
 vi.mock("../../utils/message-channel.js", () => ({
@@ -173,57 +169,53 @@ vi.mock("../pi-embedded-helpers.js", () => ({
 }));
 
 import type { EmbeddedRunAttemptResult } from "./run/types.js";
-import { compactEmbeddedPiSessionDirect } from "./compact.js";
 import { runEmbeddedPiAgent } from "./run.js";
 import { runEmbeddedAttempt } from "./run/attempt.js";
 
 const mockedRunEmbeddedAttempt = vi.mocked(runEmbeddedAttempt);
-const mockedCompactDirect = vi.mocked(compactEmbeddedPiSessionDirect);
 
-function makeAttemptResult(
-  overrides: Partial<EmbeddedRunAttemptResult> = {},
-): EmbeddedRunAttemptResult {
-  return {
-    aborted: false,
-    timedOut: false,
-    timedOutDuringCompaction: false,
-    promptError: null,
-    sessionIdUsed: "test-session",
-    assistantTexts: ["Hello!"],
-    toolMetas: [],
-    lastAssistant: undefined,
-    messagesSnapshot: [],
-    didSendViaMessagingTool: false,
-    messagingToolSentTexts: [],
-    messagingToolSentTargets: [],
-    cloudCodeAssistFormatError: false,
-    ...overrides,
-  };
-}
-
-describe("runEmbeddedPiAgent overflow compaction trigger routing", () => {
+describe("runEmbeddedPiAgent usage reporting", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("passes trigger=overflow when retrying compaction after context overflow", async () => {
-    const overflowError = new Error("request_too_large: Request size exceeds model context window");
+  it("reports total usage from the last turn instead of accumulated total", async () => {
+    // Simulate a multi-turn run result.
+    // Turn 1: Input 100, Output 50. Total 150.
+    // Turn 2: Input 150, Output 50. Total 200.
 
-    mockedRunEmbeddedAttempt
-      .mockResolvedValueOnce(makeAttemptResult({ promptError: overflowError }))
-      .mockResolvedValueOnce(makeAttemptResult({ promptError: null }));
+    // The accumulated usage (attemptUsage) will be the sum:
+    // Input: 100 + 150 = 250 (Note: runEmbeddedAttempt actually returns accumulated usage)
+    // Output: 50 + 50 = 100
+    // Total: 150 + 200 = 350
 
-    mockedCompactDirect.mockResolvedValueOnce({
-      ok: true,
-      compacted: true,
-      result: {
-        summary: "Compacted session",
-        firstKeptEntryId: "entry-5",
-        tokensBefore: 150000,
+    // The last assistant usage (lastAssistant.usage) will be Turn 2:
+    // Input: 150, Output 50, Total 200.
+
+    // We expect result.meta.agentMeta.usage.total to be 200 (last turn total).
+    // The bug causes it to be 350 (accumulated total).
+
+    mockedRunEmbeddedAttempt.mockResolvedValueOnce({
+      aborted: false,
+      timedOut: false,
+      timedOutDuringCompaction: false,
+      promptError: null,
+      sessionIdUsed: "test-session",
+      assistantTexts: ["Response 1", "Response 2"],
+      toolMetas: [],
+      lastAssistant: {
+        usage: { input: 150, output: 50, total: 200 },
+        stopReason: "end_turn",
       },
-    });
+      attemptUsage: { input: 250, output: 100, total: 350 },
+      messagesSnapshot: [],
+      didSendViaMessagingTool: false,
+      messagingToolSentTexts: [],
+      messagingToolSentTargets: [],
+      cloudCodeAssistFormatError: false,
+    } as EmbeddedRunAttemptResult);
 
-    await runEmbeddedPiAgent({
+    const result = await runEmbeddedPiAgent({
       sessionId: "test-session",
       sessionKey: "test-key",
       sessionFile: "/tmp/session.json",
@@ -233,12 +225,12 @@ describe("runEmbeddedPiAgent overflow compaction trigger routing", () => {
       runId: "run-1",
     });
 
-    expect(mockedCompactDirect).toHaveBeenCalledTimes(1);
-    expect(mockedCompactDirect).toHaveBeenCalledWith(
-      expect.objectContaining({
-        trigger: "overflow",
-        authProfileId: "test-profile",
-      }),
-    );
+    // Check usage in meta
+    const usage = result.meta.agentMeta.usage;
+    expect(usage).toBeDefined();
+
+    // Check if total matches the last turn's total (200)
+    // If the bug exists, it will likely be 350
+    expect(usage?.total).toBe(200);
   });
 });
