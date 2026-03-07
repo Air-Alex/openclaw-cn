@@ -153,6 +153,9 @@ export function loadPluginManifestRegistry(params: {
     }
 
     if (seenIds.has(manifest.id)) {
+      // Bundled plugins are lowest priority — silently skip when a higher-priority
+      // source (config/workspace/global) already registered the same id.
+      if (candidate.origin === "bundled") continue;
       diagnostics.push({
         level: "warn",
         pluginId: manifest.id,
