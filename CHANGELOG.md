@@ -2,6 +2,12 @@
 
 Docs: https://clawd.org.cn/
 
+## 0.1.9
+
+### bug修复
+
+- **修复 `sudo gateway install` 报 exit 125 错误**：`sudo openclaw gateway install` 时，`process.getuid()` 返回 `0`（root），导致 launchctl 目标 domain 变为 `gui/0`。root 没有 GUI 登录 session，`launchctl bootstrap gui/0` 因此报 `Bootstrap failed: 125: Domain does not support specified action`。修复方案：`resolveGuiDomain()` 优先读取 `SUDO_UID` 环境变量（sudo 自动设置），确保 bootstrap 始终指向原始用户的 `gui/<uid>` domain
+
 ## 0.1.8
 
 ### bug修复（0.1.8 热补丁）
